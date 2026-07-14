@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package soc;
+
+// Output destination for the protoc generator in the Go repository
+option go_package = "core-ingest/pb";
+
+// ==========================================
+// LOG CONTEXT QUERY (Python -> Go)
+// ==========================================
+message LogContextRequest {
+    repeated string evidence_ids = 1;
+}
+
+message LogContextResponse {
+    string status = 1;
+    int32 events_found = 2;
+    string log_payload_json = 3;
+}
+
+// ==========================================
+// SOAR ACTION DISPATCH (Python -> Go)
+// ==========================================
+message BlockDirectiveRequest {
+    string ip_address = 1;
+    string justification = 2;
+}
+
+message BlockDirectiveResponse {
+    bool success = 1;
+    string log_id = 2;
+}
+
+// ==========================================
+// gRPC SERVICE DEFINITION
+// ==========================================
+service IngestionCoreService {
+    // Allows the LLM Agent layer to fetch historical/contextual logs from the ingestion core
+    rpc FetchAlertContext(LogContextRequest) returns (LogContextResponse);
+    
+    // Allows the LLM Agent layer to push containment directives down to the Go core for execution
+    rpc PushBlockDirective(BlockDirectiveRequest) returns (BlockDirectiveResponse);
+}

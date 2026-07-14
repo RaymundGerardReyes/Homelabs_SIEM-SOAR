@@ -1,0 +1,34 @@
+FROM python:3.11-slim
+
+# Set environment variables to prevent Python from writing .pyc files and buffer output
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# ==========================================
+# INSTALL SYSTEM DEPS & DOCKER CLI
+# ==========================================
+# The Docker CLI is required so the FastAPI service can communicate with the 
+# host's Docker socket (/var/run/docker.sock) to spin up ephemeral playbooks.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies leveraging layer cache
+COPY soc-backend/requirements.txt .
+# If requirements.txt doesn't exist yet, we ensure the build doesn't crash by echoing minimal deps
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; else pip install --no-cache-dir fastapi uvicorn pydantic grpcio grpcio-tools docker langgraph langchain langchain-core; fi
+
+# Copy application source
+COPY soc-backend/ /app/
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# We must run as root (or a user added to the docker group) to access the mapped docker.sock
+# In a strict production environment, we map the host docker GID to a non-root user here.
+ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

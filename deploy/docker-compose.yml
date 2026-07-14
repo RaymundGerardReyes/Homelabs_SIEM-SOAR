@@ -1,0 +1,102 @@
+version: '3.8'
+
+networks:
+  internal-mesh:
+    driver: bridge
+    internal: true # STRICT ISOLATION: No external internet access
+  public-ingress:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+  postgres_data:
+  langgraph_state:
+
+services:
+  # ==========================================
+  # 1. GO INGESTION CORE (gRPC)
+  # ==========================================
+  core-ingest:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.go
+    networks:
+      - internal-mesh
+    expose:
+      - "9090"
+    depends_on:
+      - kafka
+      - clickhouse-server
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+
+  # ==========================================
+  # 2. PYTHON AGENTIC BACKEND (FastAPI/LangGraph)
+  # ==========================================
+  soc-backend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.python
+    networks:
+      - public-ingress
+      - internal-mesh
+    ports:
+      - "8000:8000"
+    volumes:
+      # CRITICAL: Maps host Docker daemon to allow sandbox instantiation
+      - /var/run/docker.sock:/var/run/docker.sock
+      - langgraph_state:/app/state
+    environment:
+      - GO_CORE_URL=http://core-ingest:9090
+      - DB_HOST=postgres
+    depends_on:
+      - core-ingest
+    restart: unless-stopped
+
+  # ==========================================
+  # 3. REACT SOC CONSOLE (Frontend)
+  # ==========================================
+  soc-frontend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.react
+    networks:
+      - public-ingress
+    ports:
+      - "80:80"
+    depends_on:
+      - soc-backend
+    restart: unless-stopped
+
+  # ==========================================
+  # 4. DATA INFRASTRUCTURE
+  # ==========================================
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:latest
+    networks:
+      - internal-mesh
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # Kafka in KRaft mode (No Zookeeper)
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    networks:
+      - internal-mesh
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'

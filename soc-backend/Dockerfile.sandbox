@@ -1,0 +1,21 @@
+# Dockerfile.sandbox
+# Maps to FR4 (Execution Sandbox)
+# Ephemeral, restricted Python environment for executing untrusted playbooks.
+FROM python:3.11-alpine
+
+# Create a non-root user to mitigate Sandbox Escape risks
+RUN adduser -D -u 1000 playbook_user
+
+# Set working directory
+WORKDIR /sandbox
+
+# Only install the minimal approved SOC SDK
+COPY soc_sdk.py /sandbox/
+# In production, this would be a real package installed via pip
+# RUN pip install --no-cache-dir ./soc-sdk-package
+
+# Switch to the non-root user before executing any untrusted code
+USER playbook_user
+
+# The entrypoint will execute the dynamically mounted playbook code
+ENTRYPOINT ["python3"]

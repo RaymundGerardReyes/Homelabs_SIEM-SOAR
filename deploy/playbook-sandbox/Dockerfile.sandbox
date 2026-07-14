@@ -1,0 +1,24 @@
+# Ephemeral, restricted Python sandbox for executing Analyst Playbooks (FR4).
+FROM python:3.11-alpine
+
+# Set working directory
+WORKDIR /sandbox
+
+# ==========================================
+# SECURITY HARDENING
+# ==========================================
+# 1. Create an unprivileged user
+RUN adduser -D -u 1000 playbook_user
+
+# 2. Only allow specific minimal dependencies (if any)
+# 3. Purge the Alpine package manager to prevent dynamic installation of netcat, curl, etc.
+RUN rm -f /sbin/apk /usr/bin/wget
+
+# Copy the restricted SOC SDK that acts as the proxy bridge
+COPY soc-backend/soc_sdk.py /sandbox/soc_sdk.py
+
+# Switch to the non-privileged user
+USER playbook_user
+
+# Execution starts here
+ENTRYPOINT ["python"]
