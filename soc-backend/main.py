@@ -1,121 +1,120 @@
-import json
-import logging
+import os
+from urllib.parse import urlparse
+import grpc
+from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-import grpc.aio
-from typing import List, Dict
-
-# Assumes protoc generated code is placed in the 'pb' module:
-# import pb.soc_service_pb2 as pb2
-# import pb.soc_service_pb2_grpc as pb2_grpc
-
-# We mock these classes for the blueprint to run cleanly without requiring protoc compilation locally
-class MockIngestionCoreServiceStub:
-    def __init__(self, channel):
-        self.channel = channel
-    
-    async def FetchAlertContext(self, request):
-        return type("Response", (), {"status": "success", "events_found": 1, "log_payload_json": '{"mock":"data"}'})()
-        
-    async def PushBlockDirective(self, request):
-        return type("Response", (), {"success": True, "log_id": "audit-123"})()
-
-class MockLogContextRequest:
-    def __init__(self, evidence_ids):
-        self.evidence_ids = evidence_ids
+from context_config import grpc_stub_context
+from auth_google import router as auth_router
+import logging
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global state for persistent gRPC connection
-grpc_channel = None
-soc_core_stub = None
+# Assumes protoc generated code is placed in the 'pb' module:
+# from pb import soc_service_pb2_grpc
 
-# ==========================================
-# FASTAPI LIFESPAN (Connection Management)
-# ==========================================
+class MockIngestionCoreServiceStub:
+    def __init__(self, channel):
+        self.channel = channel
+
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - FastAPI Bootstrap: The absolute root entry point for the Python orchestrator.
+#    - Upstream: Nginx Load Balancer / SIEM Webhooks | Downstream: LangGraph Agents
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Establishes the persistent `grpc.aio.insecure_channel` connection pool to the
+#      Go backend exactly once during the server lifespan.
+#    - Anchors the gRPC stub to a thread-safe `ContextVar` to prevent variable pollution.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Python Backend / ML: Using `ContextVars` correctly bypasses the asyncio
+#      task-switching limits, ensuring concurrent requests do not steal each other's
+#      socket instances.
+#    - Docker / Devops: Connection relies on docker-compose DNS `core-ingest:9090`.
+# 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
+#    - Initializes the `MockIngestionCoreServiceStub` (or Protobuf stub in prod).
+#    - Serves REST API over `0.0.0.0:8000`.
+# 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
+#    - Failure Mode: If `core-ingest` is offline during boot, the channel creation
+#      will succeed (lazy connection), but the first gRPC call will throw `StatusCode.UNAVAILABLE`.
+#    - Fallback State: The FastAPI server boots regardless (Fail-Open), allowing UI endpoints to function.
+# ==============================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global grpc_channel, soc_core_stub
-    logger.info("Initializing persistent async gRPC connection to Go Ingestion Core (localhost:9090)...")
+    # Establish single persistent connection pool on server boot
+    options = [('grpc.keepalive_time_ms', 30000)]
     
-    # Initialize the asyncio-based gRPC channel
-    grpc_channel = grpc.aio.insecure_channel("localhost:9090")
+    # ==============================================================================
+    # 1. 🌐 COMPONENT PLACEMENT & DYNAMIC NETWORK DISCOVERY
+    #    - Step 1 of 5: Microservice network connection bootstrapping prior to HTTP or gRPC request routing.
+    #    - Upstream: Cloud PaaS ENV / Local Docker DNS | Downstream: core-ingest gRPC
+    # 🛡️ 2. LOGICAL INTENT, ARCHITECTURAL PARITY & ANTI-REDUNDANCY
+    #    - Dynamically maps the target gRPC ingestion engine using standard `urllib.parse`
+    #      to securely extract host and port, gracefully isolating environments without naive string hacks.
+    # 🚨 3. TRANSPORTS & SYSTEM RESOURCE GUARDRAILS
+    #    - Isolates the gRPC channel into a thread-safe `ContextVar` scope, explicitly
+    #      preventing race conditions across `asyncio` task-switching boundaries.
+    # 🔗 4. CROSS-MODULE INTERFACE & TLS CONTRACT BOUNDARIES
+    #    - Anchors into `soc_service.proto` specifications via `core-ingest:9090`.
+    # ☣️ 5. CASCADING FAILURE MODE & DETAILED RESILIENCE STATE
+    #    - Failure Mode: Invalid DNS or unreachable network host.
+    #    - Resilience State: Employs a lazy-retry mechanism via `grpc.aio.insecure_channel`.
+    #      The boot routine succeeds (Fail-Open), and the connection dynamically reconnects on the first payload.
+    # ==============================================================================
+    core_url = os.environ.get("GO_CORE_URL", "grpc://core-ingest:9090")
     
-    # Instantiate the stub (Replace Mock with actual pb2_grpc.IngestionCoreServiceStub)
-    # soc_core_stub = pb2_grpc.IngestionCoreServiceStub(grpc_channel)
-    soc_core_stub = MockIngestionCoreServiceStub(grpc_channel)
+    # Robust URL Parsing: Extract the exact host and port regardless of scheme
+    parsed_url = urlparse(core_url if "://" in core_url else f"grpc://{core_url}")
+    core_target = f"{parsed_url.hostname}:{parsed_url.port}" if parsed_url.port else parsed_url.hostname
+    
+    channel = grpc.aio.insecure_channel(core_target, options=options)
+    
+    # In production: stub = soc_service_pb2_grpc.IngestionCoreServiceStub(channel)
+    stub = MockIngestionCoreServiceStub(channel)
+    
+    # Securely bind the stub reference to the context var tracking token
+    token = grpc_stub_context.set(stub)
+    logger.info("⚡ Secure Context Var connection pool active for LangGraph.")
     
     yield
     
-    logger.info("Closing async gRPC connection during shutdown...")
-    if grpc_channel:
-        await grpc_channel.close()
+    # Cleanup file descriptors completely on server exit
+    grpc_stub_context.reset(token)
+    await channel.close()
 
-app = FastAPI(title="Agentic SOC Backend", lifespan=lifespan)
+# CRITICAL UNIFICATION FIX: Only instantiate the application once with all structural parameters
+app = FastAPI(title="AI-Driven Agentic SOC Backend", lifespan=lifespan)
+app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 
-# ==========================================
-# LLM NATIVE TOOL WRAPPER
-# ==========================================
-async def query_soc_core_logs_tool(evidence_ids: List[str]) -> Dict:
-    """
-    Native Python tool function wrapper. 
-    Actively triggers the async Go gRPC stub client, processes the binary response, 
-    and returns it as a native dictionary for the LLM context.
-    """
-    if not soc_core_stub:
-        raise RuntimeError("gRPC stub is not initialized.")
+# 1. ENFORCE TRUSTED HOST RESTRICTIONS (Handled natively by Nginx edge)
+# Removed TrustedHostMiddleware to prevent "Invalid host header" errors behind reverse proxies.
+
+# 2. PROXY MIDDLEWARE: Forces FastAPI to recognize Nginx SSL termination
+class HTTPSRedirectProxyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        forwarded_proto = request.headers.get("x-forwarded-proto")
         
-    logger.info(f"Tool Invoked: Querying Go Core for {len(evidence_ids)} evidence IDs...")
-    
-    # Instantiate protobuf request (Replace MockLogContextRequest with pb2.LogContextRequest)
-    request = MockLogContextRequest(evidence_ids=evidence_ids)
-    
-    # Await the async gRPC call to strictly prevent blocking the concurrent FastAPI event loop
-    response = await soc_core_stub.FetchAlertContext(request)
-    
-    if response.status != "success":
-        logger.error(f"Go Core returned error: {response.status}")
-        return {"error": "Failed to fetch context from Go Core."}
-        
-    # Safely parse the returning JSON payload from the Go Core string field
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
+            
+        if forwarded_proto == "https" and request.scope.get("type") == "http":
+            request.scope["scheme"] = "https"
+            
+        return await call_next(request)
+
+app.add_middleware(HTTPSRedirectProxyMiddleware)
+
+@app.middleware("http")
+async def ensure_context_persistence(request: Request, call_next):
     try:
-        data = json.loads(response.log_payload_json)
-        return {
-            "events_found": response.events_found,
-            "data": data
-        }
-    except json.JSONDecodeError:
-        logger.error("Failed to decode JSON from gRPC response payload.")
-        return {"error": "Invalid JSON payload returned from Go Core."}
-
-# ==========================================
-# LANGGRAPH MOCKUP INTEGRATION
-# ==========================================
-# This demonstrates exactly how the tool above is injected into a LangGraph StateGraph Node
-"""
-from langgraph.graph import StateGraph, END
-from typing import TypedDict
-
-class AgentState(TypedDict):
-    evidence_ids: List[str]
-    context_data: dict
-
-async def query_node(state: AgentState):
-    # The LangGraph node directly awaits our async gRPC tool wrapper
-    context = await query_soc_core_logs_tool(state["evidence_ids"])
-    return {"context_data": context}
-
-workflow = StateGraph(AgentState)
-workflow.add_node("query_go_core", query_node)
-workflow.set_entry_point("query_go_core")
-workflow.add_edge("query_go_core", END)
-compiled_graph = workflow.compile()
-"""
+        return await call_next(request)
+    except Exception as e:
+        raise e
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "grpc_connected": grpc_channel is not None}
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn

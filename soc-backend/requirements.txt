@@ -1,6 +1,31 @@
-fastapi
-uvicorn
-langgraph
-langchain
-langchain-openai
-pydantic
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Python Dependency Manifest: Declares the library ecosystem for the backend.
+#    - Upstream: PyPI Registry | Downstream: deploy/Dockerfile.python
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Provisions asynchronous web frameworks, gRPC transport layers, and agentic 
+#      orchestration libraries required to execute automated playbooks.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Network Stability: `grpcio` must match the versioning expectations of the Go 
+#      ingestion microservice to avoid frame parsing mismatches.
+#    - Middleware: `starlette` is required explicitly for your proxy scheme overrides.
+# ==============================================================================
+
+# Core Web & API Engine
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+starlette>=0.27.0
+
+# Enterprise gRPC Transport Layer (Fixes ModuleNotFoundError)
+grpcio>=1.56.0
+grpcio-tools>=1.56.0
+
+# Agentic AI & Orchestration Frameworks
+langgraph>=0.1.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+pydantic>=2.0.0
+
+# Security & OAuth Utilities
+PyJWT[crypto]>=2.8.0
+requests>=2.31.0

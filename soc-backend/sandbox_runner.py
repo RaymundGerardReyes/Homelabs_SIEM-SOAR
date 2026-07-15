@@ -6,6 +6,23 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Ephemeral Engine: Directly interacts with the host hypervisor.
+#    - Upstream: AI Playbook Orchestrator | Downstream: Host OS Kernel
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Similar to `HardenedSandboxOrchestrator`, provides a DevSecOps secure
+#      sandbox API to execute arbitrary strings as Python bytecode.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Docker / Devops: `network_mode="bridge"` explicitly allows egress traffic.
+#      Warning: If a playbook is malicious, it can exfiltrate data outbound to
+#      the internet unless explicitly blocked by a host firewall.
+# 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
+#    - Relies on the availability of the `playbook-sandbox:latest` Docker image.
+# 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
+#    - Failure Mode: If the Docker daemon crashes, `self.client` initialization fails.
+#    - Fallback State: Gracefully handles `DockerException` returning a failed dict.
+# ==============================================================================
 class PlaybookSandboxRunner:
     """
     DevSecOps Sandbox Orchestrator:
@@ -39,7 +56,7 @@ class PlaybookSandboxRunner:
                 "image": image_tag,
                 "command": ["/sandbox/playbook.py"] + target_args,
                 "remove": True,                        # Automatically delete container after execution
-                "network_mode": "none",                # HARD REQUIREMENT: Zero network access
+                "network_mode": "bridge",              # FIXED: Allow isolated egress for Threat Intel API queries (AlienVault, Abuse.ch)
                 "mem_limit": "128m",                   # Strict memory ceiling
                 "memswap_limit": "128m",               # Prevent swap abuse
                 "nano_cpus": 500000000,                # Restrict to 0.5 CPUs

@@ -1,81 +1,116 @@
-version: '3.8'
-
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Orchestration Engine: Assembles and links independent service components.
+#    - Upstream: System Host Engine OS Environment | Downstream: Public Access Nodes
+# ==============================================================================
 networks:
   internal-mesh:
     driver: bridge
-    internal: true # STRICT ISOLATION: No external internet access
+    internal: true # Air-gapped network segment protecting databases from public access
   public-ingress:
     driver: bridge
-
 volumes:
   clickhouse_data:
-  postgres_data:
   langgraph_state:
-
+  postgres_data:
 services:
-  # ==========================================
-  # 1. GO INGESTION CORE (gRPC)
-  # ==========================================
-  core-ingest:
-    build:
-      context: ../
-      dockerfile: deploy/Dockerfile.go
-    networks:
-      - internal-mesh
-    expose:
-      - "9090"
-    depends_on:
-      - kafka
-      - clickhouse-server
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-
-  # ==========================================
-  # 2. PYTHON AGENTIC BACKEND (FastAPI/LangGraph)
-  # ==========================================
-  soc-backend:
-    build:
-      context: ../
-      dockerfile: deploy/Dockerfile.python
+  # ============================================================================
+  # 1. CLOUDFLARE TUNNEL BROKER (Secure Outbound Edge Connection)
+  # ============================================================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: soc-cloudflared-edge
     networks:
       - public-ingress
-      - internal-mesh
-    ports:
-      - "8000:8000"
-    volumes:
-      # CRITICAL: Maps host Docker daemon to allow sandbox instantiation
-      - /var/run/docker.sock:/var/run/docker.sock
-      - langgraph_state:/app/state
+    user: "65532:65532" # Enforces strict non-root execution inside the container container
     environment:
-      - GO_CORE_URL=http://core-ingest:9090
-      - DB_HOST=postgres
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      - core-ingest
+      - soc-frontend
+    command: tunnel --no-autoupdate run
     restart: unless-stopped
 
-  # ==========================================
-  # 3. REACT SOC CONSOLE (Frontend)
-  # ==========================================
+  # ============================================================================
+  # 2. EDGE INTERCEPTOR & APPLICATION FIREWALL (Nginx Proxy)
+  # ============================================================================
   soc-frontend:
     build:
       context: ../
       dockerfile: deploy/Dockerfile.react
+    container_name: soc-nginx-proxy
     networks:
-      - public-ingress
+      public-ingress:
+        aliases:
+          - soc-nginx-proxy
+      internal-mesh:
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      - RESOLVER_IP=127.0.0.11
     depends_on:
+      - core-ingest
       - soc-backend
     restart: unless-stopped
 
-  # ==========================================
-  # 4. DATA INFRASTRUCTURE
-  # ==========================================
+  # ============================================================================
+  # 3. GO STREAM INGESTION ENGINE
+  # ============================================================================
+  core-ingest:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.go
+    container_name: soc-go-ingest-core
+    networks:
+      - internal-mesh
+      - public-ingress # Bound to public ingress strictly for port 8080 routing routes
+    expose:
+      - "9090" # Internal gRPC socket connection channel
+      - "8080" # Exposed endpoint receiving unbuffered HTTP webhook packets
+    env_file: .env
+    environment:
+      - DATABASE_URL=${POSTGRES_CONNECTION_STRING}
+      - CLICKHOUSE_ADDRESS=clickhouse-server:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse-server:
+        condition: service_started
+    restart: unless-stopped
+
+  # ============================================================================
+  # 4. PYTHON AI AGENT ORCHESTRATION LAYER (FastAPI / LiteLLM Router)
+  # ============================================================================
+  soc-backend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.python
+    container_name: soc-python-ai-backend
+    networks:
+      - internal-mesh
+      - public-ingress
+    expose:
+      - "8000"
+    volumes:
+      - langgraph_state:/app/state
+    env_file: .env
+    environment:
+      - DATABASE_URL=${POSTGRES_CONNECTION_STRING}
+      - GO_CORE_URL=${GO_CORE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      core-ingest:
+        condition: service_started
+    restart: unless-stopped
+
+  # ============================================================================
+  # 5. DATA LAKE ENGINE (ClickHouse Columnar Storage)
+  # ============================================================================
   clickhouse-server:
     image: clickhouse/clickhouse-server:latest
+    container_name: soc-clickhouse-analytics
+    env_file: .env
     networks:
       - internal-mesh
     volumes:
@@ -84,19 +119,25 @@ services:
       nofile:
         soft: 262144
         hard: 262144
+    restart: unless-stopped
 
-  # Kafka in KRaft mode (No Zookeeper)
-  kafka:
-    image: confluentinc/cp-kafka:latest
+  # ============================================================================
+  # 6. TRANSACTIONAL STATE ENGINE (PostgreSQL for Multi-Tenant Data)
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: soc-postgres-state
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
     networks:
       - internal-mesh
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'

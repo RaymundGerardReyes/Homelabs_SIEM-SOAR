@@ -17,6 +17,24 @@ RUN npm run build
 # ==========================================
 # STAGE 2: NGINX PRODUCTION SERVER
 # ==========================================
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Container Blueprint: React Dashboard and Reverse Proxy.
+#    - Upstream: CI/CD Pipeline | Downstream: Production Docker Daemon
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Executes a multistage build: compiles the raw TypeScript UI using Vite/Node,
+#      then discards the Node runtime and serves the static HTML/JS via Nginx.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Architecture: Injects the heavily hardened `deploy/nginx.conf` over the
+#      default Nginx configuration. This transforms the static file server into
+#      a Layer-7 API Gateway for the entire SOAR platform.
+# 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
+#    - Binds internally to Port 80.
+# 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
+#    - Failure Mode: If the Vite build fails, the Docker build fails.
+#    - Fallback State: Preserves the previous running container since Docker won't
+#      deploy a broken build.
+# ==============================================================================
 FROM nginx:alpine
 
 # Remove default Nginx static assets
@@ -25,8 +43,16 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy built React files from the builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Optionally, copy a custom nginx.conf here to handle React Router fallback (try_files $uri /index.html)
-# COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+# Inject the production split-routing traffic configurations
+COPY deploy/nginx.conf /etc/nginx/nginx.conf
+
+# Generate a self-signed fallback certificate for local development so Nginx doesn't crash on startup
+RUN apk add --no-cache openssl && \
+    mkdir -p /etc/letsencrypt/live/yourdomain.com && \
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/letsencrypt/live/yourdomain.com/privkey.pem \
+    -out /etc/letsencrypt/live/yourdomain.com/fullchain.pem \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=yourdomain.com"
 
 # Expose standard HTTP port
 EXPOSE 80

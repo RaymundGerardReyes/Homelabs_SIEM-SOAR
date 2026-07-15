@@ -9,6 +9,24 @@ WORKDIR /app
 # ==========================================
 # INSTALL SYSTEM DEPS & DOCKER CLI
 # ==========================================
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Container Blueprint: Python LangGraph AI Orchestrator.
+#    - Upstream: CI/CD Pipeline | Downstream: Production Docker Daemon
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Installs Python 3.11 with `docker.io` tools to allow the FastAPI container
+#      to communicate over the `/var/run/docker.sock` proxy bridge.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Security Warning: This container executes as `root` (or equivalent docker group)
+#      to manipulate the host's Docker socket. This is a severe privilege escalation
+#      risk. Ensure the container remains isolated on the `internal-mesh` network.
+# 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
+#    - Reaps dependencies from `soc-backend/requirements.txt` leveraging build caching.
+# 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
+#    - Failure Mode: Dependency drift or missing `requirements.txt`.
+#    - Fallback State: Forces a raw `pip install` loop with known critical dependencies
+#      to guarantee build completion.
+# ==============================================================================
 # The Docker CLI is required so the FastAPI service can communicate with the 
 # host's Docker socket (/var/run/docker.sock) to spin up ephemeral playbooks.
 RUN apt-get update && \
@@ -31,4 +49,6 @@ EXPOSE 8000
 
 # We must run as root (or a user added to the docker group) to access the mapped docker.sock
 # In a strict production environment, we map the host docker GID to a non-root user here.
-ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# CRITICAL FIX: Directs Uvicorn to look inside the current working directory 
+# for the 'main.py' file, and initialize the 'app' instance variable.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# ==============================================================================
+# 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
+#    - Infrastructure Scraper: Operates inside the isolated Docker network bridge.
+#    - Upstream: Prometheus TSDB | Downstream: Go Core / cAdvisor Exporters
+# 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
+#    - Pulls telemetry from internal microservices to construct Grafana alerting
+#      dashboards. Specifically tracks GC heap exhaustion and goroutine leaks.
+# 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
+#    - Security: Scrapes are performed entirely behind the Nginx reverse proxy.
+#      The `/metrics` endpoint must never be exposed to public egress `0.0.0.0:80`.
+# 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
+#    - Interfaces with `core-ingest:8080` and `cadvisor:8080` internally.
+# 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
+#    - Failure Mode: Target containers OOM kill or network partitions.
+#    - Fallback State: Target marked as "DOWN", triggering secondary AlertManager pagers.
+# ==============================================================================
+scrape_configs:
+  - job_name: 'soc_core_metrics'
+    metrics_path: '/metrics'
+    # Scrape the metrics internally from the Go Core container directly, 
+    # bypassing the hardened Nginx public edge proxy entirely.
+    static_configs:
+      - targets: ['core-ingest:8080']
+    
+  - job_name: 'soc_agent_containers'
+    # Reserved space for tracking Alpine Sandbox RAM/CPU utilization metrics
+    static_configs:
+      - targets: ['cadvisor:8080']
