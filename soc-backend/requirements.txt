@@ -26,6 +26,16 @@ langchain>=0.1.0
 langchain-openai>=0.1.0
 pydantic>=2.0.0
 
+# Docker SDK — Python client for the Docker Engine API
+# NOTE: This is the PyPI package `docker` (import docker), NOT the `docker.io`
+# CLI binary installed via apt-get in Dockerfile.python. Both are required:
+#   - Dockerfile.python apt-get docker.io  → gives access to /var/run/docker.sock
+#   - This pip package                      → gives Python the `import docker` module
+docker>=7.0.0
+
+# Async HTTP client (used by threat-intel enrichment and webhook callbacks)
+httpx>=0.27.0
+
 # Security & OAuth Utilities
 PyJWT[crypto]>=2.8.0
 requests>=2.31.0

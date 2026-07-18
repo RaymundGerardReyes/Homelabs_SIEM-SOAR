@@ -1,4 +1,7 @@
-import docker
+# sandbox_runner.py
+# NOTE: `import docker` is intentionally deferred to __init__ so that a missing
+# docker SDK does NOT crash Uvicorn at startup. The error surfaces only when
+# PlaybookSandboxRunner() is instantiated (i.e., when a request arrives).
 import tempfile
 import os
 import logging
@@ -30,12 +33,20 @@ class PlaybookSandboxRunner:
     heavily-restricted Docker container on the host machine.
     """
     def __init__(self):
+        self.client = None
+        self._docker = None
         try:
+            import docker as _docker
+            self._docker = _docker
             # Connects via the /var/run/docker.sock socket mounted in the soc-backend container
-            self.client = docker.from_env()
-        except docker.errors.DockerException as e:
-            logger.error(f"Failed to connect to Docker daemon: {e}")
-            self.client = None
+            self.client = _docker.from_env()
+        except ImportError as exc:
+            logger.error(
+                f"[SandboxRunner] Python docker SDK not installed: {exc}. "
+                "Add `docker>=7.0.0` to requirements.txt and rebuild."
+            )
+        except Exception as exc:
+            logger.error(f"[SandboxRunner] Failed to connect to Docker daemon: {exc}")
 
     def execute_script(self, playbook_code: str, target_args: list[str]) -> Dict[str, Any]:
         if not self.client:
@@ -82,15 +93,17 @@ class PlaybookSandboxRunner:
                 "logs": logs_bytes.decode('utf-8')
             }
             
-        except docker.errors.ContainerError as e:
-            logger.error(f"Playbook execution failed (ContainerError): {e}")
-            return {"status": "failed", "logs": e.stderr.decode('utf-8') if e.stderr else str(e)}
-        except docker.errors.APIError as e:
-            logger.error(f"Docker API Error: {e}")
-            return {"status": "failed", "logs": str(e)}
-        except Exception as e:
-            logger.error(f"Sandbox orchestration exception: {e}")
-            return {"status": "failed", "logs": str(e)}
+        except Exception as exc:
+            # Attempt specific docker error classification if SDK is available
+            if self._docker:
+                if isinstance(exc, self._docker.errors.ContainerError):
+                    logger.error(f"[SandboxRunner] ContainerError: {exc}")
+                    return {"status": "failed", "logs": exc.stderr.decode("utf-8") if exc.stderr else str(exc)}
+                if isinstance(exc, self._docker.errors.APIError):
+                    logger.error(f"[SandboxRunner] Docker API Error: {exc}")
+                    return {"status": "failed", "logs": str(exc)}
+            logger.exception("[SandboxRunner] Unexpected sandbox orchestration error.")
+            return {"status": "failed", "logs": str(exc)}
             
         finally:
             # 4. Clean up host temp files

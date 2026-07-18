@@ -22,13 +22,25 @@ services:
     container_name: soc-cloudflared-edge
     networks:
       - public-ingress
-    user: "65532:65532" # Enforces strict non-root execution inside the container container
+    user: "65532:65532" # Enforces strict non-root execution inside the container
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      # Force HTTP2 (TCP) instead of QUIC (UDP) — prevents intermittent 502s caused by Docker UDP packet drops
+      - TUNNEL_TRANSPORT_PROTOCOL=http2
+      # Raise origin timeouts to match Nginx keepalive and prevent premature connection drops
+      - TUNNEL_ORIGIN_SERVER_NAME=soc-nginx-proxy
     depends_on:
-      - soc-frontend
+      soc-frontend:
+        # CRITICAL: Wait until Nginx passes its healthcheck before tunnel starts accepting traffic.
+        # Without this, cloudflared races Nginx startup and sends traffic to an unready origin → 502.
+        condition: service_healthy
     command: tunnel --no-autoupdate run
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 128M
 
   # ============================================================================
   # 2. EDGE INTERCEPTOR & APPLICATION FIREWALL (Nginx Proxy)
@@ -41,6 +53,8 @@ services:
     networks:
       public-ingress:
         aliases:
+          # Canonical alias cloudflared uses: http://soc-nginx-proxy:80
+          # Must NEVER be removed — breaks tunnel container-name routing.
           - soc-nginx-proxy
       internal-mesh:
     ports:
@@ -51,6 +65,14 @@ services:
     depends_on:
       - core-ingest
       - soc-backend
+    # Healthcheck: Nginx must return 200 before cloudflared is allowed to start.
+    # Polls /health which proxies to FastAPI GET /api/health → {"status": "healthy"}.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # ============================================================================
@@ -102,6 +124,13 @@ services:
         condition: service_healthy
       core-ingest:
         condition: service_started
+    # Healthcheck: FastAPI /api/health must respond before Nginx healthcheck succeeds.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # ============================================================================

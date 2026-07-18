@@ -294,7 +294,41 @@ h1, h2, h3 { font-weight: 600; color: var(--text-primary); }
   box-shadow: 0 0 10px var(--accent-success-glow);
 }
 
-.nav-arrow { font-size: 0.7rem; color: var(--text-muted); }
+.nav-arrow { font-size: 0.7rem; color: var(--text-muted); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.nav-arrow.open { transform: rotate(-180deg); color: var(--accent-primary); }
+
+.sub-menu {
+  display: flex;
+  flex-direction: column;
+  padding-left: 35px;
+  margin-bottom: 8px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.sub-menu-item {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.sub-menu-item:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+  transform: translateX(4px);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-down {
+  animation: slideDown 0.3s ease forwards;
+}
 
 .sidebar-footer { padding: 15px; border-top: 1px solid var(--border-light); }
 

@@ -1,5 +1,7 @@
 import logging
-from pydantic import BaseModel, Field, IPvAnyAddress, constr
+from typing import Annotated
+from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import StringConstraints
 
 logger = logging.getLogger("soc_sdk")
 
@@ -23,22 +25,33 @@ logger = logging.getLogger("soc_sdk")
 #    - Failure Mode: Malformed AI outputs raise a `ValueError`.
 #    - Fallback State: Fail-Closed. Execution aborts preventing destructive actions.
 # ==============================================================================
+# ── Reusable constrained string types (Pydantic v2 style) ───────────────────
+# Pydantic v2 replaced constr(regex=...) with Annotated[str, StringConstraints(pattern=...)].
+# The old `regex` keyword raises TypeError on Pydantic >=2.0 — use `pattern` instead.
+_Justification = Annotated[str, StringConstraints(min_length=10, max_length=255)]
+_RiskLevel = Annotated[
+    str,
+    StringConstraints(pattern=r"^(LOW_IMPACT_WRITE|HIGH_IMPACT_WRITE|DESTRUCTIVE)$"),
+]
+
+
 class IsolationTarget(BaseModel):
     """
     Strictly validates target payloads before passing them to the Playbook execution engine.
     Prevents Agent hallucinations from breaking IP constraints or formatting.
     """
     target_ip: IPvAnyAddress = Field(..., description="The IPv4 or IPv6 address to isolate.")
-    justification: constr(min_length=10, max_length=255) = Field(
+    justification: _Justification = Field(
         ..., description="Audit justification for containment action."
     )
-    risk_level: constr(regex="^(LOW_IMPACT_WRITE|HIGH_IMPACT_WRITE|DESTRUCTIVE)$") = Field(
+    risk_level: _RiskLevel = Field(
         ..., description="Declared action severity classification."
     )
-    
+
+
 class BlockActionConfig(BaseModel):
     ip_address: IPvAnyAddress
-    justification: constr(min_length=10, max_length=255)
+    justification: _Justification
     actor_id: str
     session_id: str
     authorization_jwt: str

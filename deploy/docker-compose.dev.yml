@@ -1,0 +1,80 @@
+version: '3.8'
+
+networks:
+  internal-mesh:
+    # Disabling the air-gap for local dev allows you to connect to Postgres and ClickHouse 
+    # directly from your host machine via DBeaver, pgAdmin, etc.
+    internal: false
+
+services:
+  # ============================================================================
+  # CLOUDFLARE TUNNEL (Disabled for Dev)
+  # ============================================================================
+  cloudflared:
+    # By assigning this to the "prod" profile in the override file, it will NOT start
+    # when you run the dev stack, preventing unnecessary tunnel failures locally.
+    profiles:
+      - prod
+
+  # ============================================================================
+  # FRONTEND (Vite Hot-Reload)
+  # ============================================================================
+  soc-frontend:
+    build:
+      # Target the builder stage only, skipping the production Nginx and TLS setup
+      target: builder
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      # Expose Vite dev server strictly to localhost
+      - "127.0.0.1:5173:5173"
+    environment:
+      # Tells the Vite dev server proxy WHERE to forward /api/* requests inside Docker.
+      # 'soc-backend' is the Docker Compose service name, resolved via internal Docker DNS.
+      # This mirrors what Nginx does in production (proxy_pass http://soc-backend:8000).
+      - VITE_API_TARGET=http://soc-backend:8000
+    volumes:
+      # Bind mount the frontend source code for instant HMR (Hot Module Reloading)
+      - ../soc-frontend:/app
+      # Prevent the host's node_modules from overwriting the container's node_modules
+      - /app/node_modules
+    # Wait for the backend to be running before starting Vite (OAuth proxy dependency)
+    depends_on:
+      - soc-backend
+
+  # ============================================================================
+  # PYTHON BACKEND (Uvicorn Hot-Reload)
+  # ============================================================================
+  soc-backend:
+    # Run Uvicorn with the --reload flag to restart on code changes
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    env_file: .env.dev
+    ports:
+      # Expose the FastAPI backend strictly to localhost, using env var for flexibility
+      - "127.0.0.1:${DEV_BACKEND_PORT:-18000}:8000"
+    volumes:
+      # Bind mount the backend source code for instant iteration
+      - ../soc-backend:/app
+
+  # ============================================================================
+  # GO INGESTION CORE
+  # ============================================================================
+  core-ingest:
+    env_file: .env.dev
+    ports:
+      # Changed from 8080/9090 to 28080/29090 to prevent Windows socket bind collisions
+      - "127.0.0.1:${DEV_INGEST_HTTP_PORT:-28080}:8080"
+      - "127.0.0.1:${DEV_INGEST_GRPC_PORT:-29090}:9090"
+
+  # ============================================================================
+  # DATABASES
+  # ============================================================================
+  postgres:
+    ports:
+      # Default to 5433 to avoid conflict with native Windows PostgreSQL on 5432
+      - "127.0.0.1:${DEV_POSTGRES_PORT:-5433}:5432"
+
+  clickhouse-server:
+    ports:
+      - "127.0.0.1:${DEV_CLICKHOUSE_HTTP_PORT:-8124}:8123"
+      - "127.0.0.1:${DEV_CLICKHOUSE_NATIVE_PORT:-9001}:9000"
+

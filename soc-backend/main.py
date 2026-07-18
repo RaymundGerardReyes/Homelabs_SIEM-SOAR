@@ -5,7 +5,9 @@ from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from context_config import grpc_stub_context
 from auth_google import router as auth_router
+from api_routes import router as data_router
 import logging
+
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -86,6 +88,7 @@ async def lifespan(app: FastAPI):
 # CRITICAL UNIFICATION FIX: Only instantiate the application once with all structural parameters
 app = FastAPI(title="AI-Driven Agentic SOC Backend", lifespan=lifespan)
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(data_router, prefix="/api/data", tags=["Data"])
 
 # 1. ENFORCE TRUSTED HOST RESTRICTIONS (Handled natively by Nginx edge)
 # Removed TrustedHostMiddleware to prevent "Invalid host header" errors behind reverse proxies.

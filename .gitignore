@@ -21,7 +21,11 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
+env.
+.env.dev
+deploy/.env.dev
+deploy/.env.local
+deploy/.env.prod
 build/
 develop-eggs/
 dist/
@@ -92,3 +96,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.sw?
+# Ignore local dev environments
+deploy/.env.dev
+
+# Ignore local dev environments
+deploy/.env.dev
