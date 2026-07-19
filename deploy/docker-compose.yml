@@ -25,6 +25,8 @@ services:
     user: "65532:65532" # Enforces strict non-root execution inside the container
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      # Force IPv4 to prevent Docker DNS IPv6 drops causing intermittent 502s
+      - TUNNEL_EDGE_BIND_ADDRESS=0.0.0.0
       # Force HTTP2 (TCP) instead of QUIC (UDP) — prevents intermittent 502s caused by Docker UDP packet drops
       - TUNNEL_TRANSPORT_PROTOCOL=http2
       # Raise origin timeouts to match Nginx keepalive and prevent premature connection drops

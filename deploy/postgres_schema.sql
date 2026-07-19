@@ -39,3 +39,20 @@ ALTER TABLE tenant_registry ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_boundary ON tenant_registry
     FOR ALL
     USING (tenant_id = current_setting('request.jwt.claim.tenant_id', true));
+
+-- ==============================================================================
+-- 6. OBSERVABILITY & GOVERNANCE: AUDIT LEDGER
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    correlation_id VARCHAR(64) NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    agent VARCHAR(128) NOT NULL,
+    action VARCHAR(128) NOT NULL,
+    context JSONB NOT NULL DEFAULT '{}'::jsonb,
+    risk_level VARCHAR(64) NOT NULL,
+    policy_decision VARCHAR(64) NOT NULL
+);
+
+-- Optimization for tracing incidents by correlation ID
+CREATE INDEX idx_audit_logs_correlation_id ON audit_logs(correlation_id);

@@ -1,255 +1,179 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Playbook } from '@/types';
-import apiClient from '@/shared/hooks/useAuthApi';
+import React, { useEffect, useState, useRef } from 'react';
+import { useAsyncState } from '../../../shared/hooks';
+import { Playbook } from '../../../shared/types';
+import { LoadingSkeleton, ErrorState, Badge } from '../../../shared/ui';
+import apiClient from '../../../shared/api/apiClient';
+import { tokenService } from '../../../shared/auth/tokenService';
 
-type ExecStatus = 'idle' | 'queued' | 'running' | 'success' | 'failed';
-
-interface PlaybookExecState {
-  status: ExecStatus;
-  output: string;
-  exitCode: number | null;
-  durationMs: number | null;
+interface ExecutionState {
+  status: 'queued' | 'running' | 'success' | 'failed';
+  output: string[];
+  exitCode?: number;
+  duration?: number;
 }
 
-interface PlaybookSandboxProps {
-  playbooks: Playbook[];
-  selectedPlaybook: Playbook | null;
-  setSelectedPlaybook: (pb: Playbook | null) => void;
-  playbookOutput: string | null;
-  runPlaybook: (pb: Playbook) => void;
-  setPlaybookOutput: (out: string | null) => void;
-}
+export default function PlaybookSandbox() {
+  const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null);
+  const [executionCache, setExecutionCache] = useState<Record<string, ExecutionState>>({});
+  const activeWsRef = useRef<WebSocket | null>(null);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
 
-const statusColors: Record<ExecStatus, string> = {
-  idle:    '#64748b',
-  queued:  '#facc15',
-  running: '#60a5fa',
-  success: '#4ade80',
-  failed:  '#f87171',
-};
-
-const statusLabels: Record<ExecStatus, string> = {
-  idle:    '',
-  queued:  '⏳ Queued…',
-  running: '⟳ Running…',
-  success: '✔ Success',
-  failed:  '✕ Failed',
-};
-
-const PlaybookSandbox: React.FC<PlaybookSandboxProps> = ({
-  playbooks,
-  selectedPlaybook,
-  setSelectedPlaybook,
-  setPlaybookOutput,
-}) => {
-  const [execStates, setExecStates] = useState<Record<string, PlaybookExecState>>({});
-  const outputRef = useRef<HTMLPreElement>(null);
-
-  const getCurrentExec = (id: string): PlaybookExecState =>
-    execStates[id] ?? { status: 'idle', output: '', exitCode: null, durationMs: null };
-
-  const setExec = (id: string, update: Partial<PlaybookExecState>) => {
-    setExecStates(prev => ({
-      ...prev,
-      [id]: { ...getCurrentExec(id), ...update },
-    }));
-  };
+  const { data: playbooks, loading, error, execute } = useAsyncState<Playbook[]>(async () => {
+    const res = await apiClient.get('/playbooks');
+    return res.data || [];
+  });
 
   useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [execStates]);
+    execute();
+  }, [execute]);
 
-  const handleRun = async (pb: Playbook) => {
-    const pbExec = getCurrentExec(pb.id);
-    if (pbExec.status === 'running' || pbExec.status === 'queued') return;
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [executionCache]);
 
-    const startTs = Date.now();
-    setExec(pb.id, { status: 'queued', output: `[QUEUED] Contacting sandbox for '${pb.name}'…\n`, exitCode: null, durationMs: null });
+  const runPlaybook = (playbookId: string) => {
+    if (activeWsRef.current) activeWsRef.current.close();
+    
+    setExecutionCache(prev => ({
+      ...prev,
+      [playbookId]: { status: 'queued', output: ['> Initiating sandbox execution container...'] }
+    }));
 
-    const token = localStorage.getItem('internal_access_token') ?? '';
-    const evtSrc = new EventSource(`/api/data/playbooks/${pb.id}/execute/stream?token=${encodeURIComponent(token)}`);
+    const token = tokenService.getToken();
+    const wsUrl = new URL(`/api/playbooks/${playbookId}/execute/stream`, window.location.origin);
+    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (token) wsUrl.searchParams.append('token', token);
 
-    setExec(pb.id, { status: 'running' });
+    const ws = new WebSocket(wsUrl.toString());
+    activeWsRef.current = ws;
 
-    let hasData = false;
-    let outputAccum = `[RUNNING] Executing '${pb.name}' in ephemeral sandbox…\n`;
-
-    evtSrc.onmessage = (e) => {
-      hasData = true;
-      outputAccum += e.data + '\n';
-      setExec(pb.id, { output: outputAccum });
+    ws.onopen = () => {
+      setExecutionCache(prev => ({
+        ...prev,
+        [playbookId]: { ...prev[playbookId], status: 'running', output: [...prev[playbookId].output, '> Connected to sandbox stream...'] }
+      }));
     };
 
-    evtSrc.addEventListener('done', (e) => {
-      hasData = true;
-      const payload = JSON.parse((e as MessageEvent).data ?? '{}');
-      const code = payload.exit_code ?? 0;
-      evtSrc.close();
-      setExec(pb.id, {
-        status: code === 0 ? 'success' : 'failed',
-        output: outputAccum + `\n[COMPLETE] Exit code: ${code}`,
-        exitCode: code,
-        durationMs: Date.now() - startTs,
-      });
-    });
-
-    evtSrc.onerror = async () => {
-      evtSrc.close();
-      if (hasData) return;
-
+    ws.onmessage = (event) => {
+      let message = event.data;
       try {
-        const res = await apiClient.post(`/data/playbooks/${pb.id}/run`, {
-          target: 'demo_target',
-          justification: 'Manual execution from Frontend Dashboard',
-        });
-        const d = res.data;
-        setExec(pb.id, {
-          status: 'success',
-          output: `[SUCCESS]\n\nPlaybook: ${d.playbook_id}\nExecution Time: ${d.execution_time}\n\nLogs:\n` + d.logs.join('\n'),
-          exitCode: 0,
-          durationMs: Date.now() - startTs,
-        });
-      } catch (err: unknown) {
-        const msg = (err as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail ?? (err as { message?: string })?.message ?? 'Unknown error';
-        setExec(pb.id, {
-          status: 'failed',
-          output: `[FAILED] ${msg}`,
-          exitCode: 1,
-          durationMs: Date.now() - startTs,
-        });
-      }
+        const parsed = JSON.parse(event.data);
+        if (parsed.type === 'END') {
+          setExecutionCache(prev => ({
+            ...prev,
+            [playbookId]: { 
+              ...prev[playbookId], 
+              status: parsed.exitCode === 0 ? 'success' : 'failed',
+              exitCode: parsed.exitCode,
+              duration: parsed.duration
+            }
+          }));
+          return;
+        }
+        if (parsed.output) message = parsed.output;
+      } catch (e) {}
+
+      setExecutionCache(prev => ({
+        ...prev,
+        [playbookId]: { ...prev[playbookId], output: [...prev[playbookId].output, message] }
+      }));
+    };
+
+    ws.onclose = () => {
+      activeWsRef.current = null;
     };
   };
 
-  const handleStop = (pb: Playbook) => {
-    setExec(pb.id, { status: 'failed', output: getCurrentExec(pb.id).output + '\n[STOPPED] Execution cancelled by analyst.' });
+  const stopExecution = (playbookId: string) => {
+    if (activeWsRef.current) {
+      activeWsRef.current.close();
+      setExecutionCache(prev => ({
+        ...prev,
+        [playbookId]: { ...prev[playbookId], status: 'failed', output: [...prev[playbookId].output, '> Execution forcibly terminated by user.'] }
+      }));
+    }
   };
 
-  const fmt = (ms: number) => ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+  const currentExec = selectedPlaybook ? executionCache[selectedPlaybook.id] : null;
 
   return (
-    <div className="playbook-view-wrapper fadeIn">
-      <div className="header">
-        <h1>Playbook Sandbox</h1>
-        <p className="subtitle">Manage and orchestrate secure containerized automation scripts.</p>
+    <div className="flex h-screen bg-slate-950 ml-64 pt-16">
+      <div className="w-64 border-r border-slate-800 bg-slate-900 flex flex-col">
+        <div className="p-4 border-b border-slate-800">
+          <h2 className="text-white font-bold text-sm uppercase tracking-wider">Playbooks</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading && <LoadingSkeleton lines={4} />}
+          {error && <ErrorState message="Failed to load playbooks" onRetry={execute} />}
+          {playbooks?.map(pb => (
+            <button
+              key={pb.id}
+              onClick={() => setSelectedPlaybook(pb)}
+              className={`w-full text-left p-3 rounded mb-1 text-sm transition-colors ${selectedPlaybook?.id === pb.id ? 'bg-blue-600/20 text-blue-400' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              <div className="font-medium">{pb.name}</div>
+              <div className="text-xs text-slate-500 mt-1 truncate">Trigger: {pb.trigger}</div>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="playbook-layout">
-        <div className="playbook-sidebar glass-panel">
-          <h3 className="section-title">Available Playbooks</h3>
-          <ul>
-            {playbooks.map(pb => {
-              const exec = getCurrentExec(pb.id);
-              return (
-                <li
-                  key={pb.id}
-                  className={`list-item interactive-card hover-lift ${selectedPlaybook?.id === pb.id ? 'active glow-border' : ''}`}
-                  onClick={() => { setSelectedPlaybook(pb); setPlaybookOutput(null); }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter') { setSelectedPlaybook(pb); setPlaybookOutput(null); } }}
-                  aria-label={`Select playbook: ${pb.name}`}
-                >
-                  <span className="item-name">{pb.name}</span>
-                  {exec.status !== 'idle' && (
-                    <span style={{ fontSize: '11px', color: statusColors[exec.status], fontFamily: 'monospace' }}>
-                      {statusLabels[exec.status]}
-                    </span>
-                  )}
-                  <span className="item-arrow">→</span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        <div className="playbook-editor-container glass-panel">
-          {selectedPlaybook ? (() => {
-            const exec = getCurrentExec(selectedPlaybook.id);
-            const isActive = exec.status === 'running' || exec.status === 'queued';
-            return (
-              <div className="editor-content fadeIn">
-                <div className="playbook-header">
-                  <h2>{selectedPlaybook.name}</h2>
-                  <div className="playbook-meta">
-                    Trigger: <code className="glass-code text-warning">{selectedPlaybook.trigger}</code>
-                  </div>
-                </div>
-
-                <div className="editor-wrapper">
-                  <div className="editor-toolbar">
-                    <span className="dot dot-red" /><span className="dot dot-yellow" /><span className="dot dot-green" />
-                    <span className="editor-title">Python 3.11 — Read-Only Viewer</span>
-                  </div>
-                  <textarea
-                    className="code-editor"
-                    value={selectedPlaybook.code}
-                    readOnly
-                    aria-label={`Source code for playbook ${selectedPlaybook.name}`}
-                  />
-                </div>
-
-                <div className="playbook-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <button
-                    className="run-btn premium-btn hover-lift glow-on-hover"
-                    onClick={() => handleRun(selectedPlaybook)}
-                    disabled={isActive}
-                    aria-busy={isActive}
-                  >
-                    <span className="btn-icon">{isActive ? '⟳' : '▶'}</span>
-                    {isActive ? ' Running…' : ' Run in Sandbox'}
+      <div className="flex-1 flex flex-col">
+        {selectedPlaybook ? (
+          <>
+            <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold text-white">{selectedPlaybook.name}</h2>
+                <p className="text-xs text-slate-400">Trigger: {selectedPlaybook.trigger}</p>
+              </div>
+              <div>
+                {currentExec?.status === 'running' ? (
+                  <button onClick={() => stopExecution(selectedPlaybook.id)} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded font-medium text-sm transition-colors">
+                    Stop Execution
                   </button>
-                  {isActive && (
-                    <button
-                      className="btn-secondary hover-lift"
-                      onClick={() => handleStop(selectedPlaybook)}
-                      style={{ color: '#f87171' }}
-                    >
-                      ✕ Stop
-                    </button>
-                  )}
-                </div>
-
-                {exec.status !== 'idle' && (
-                  <div style={{
-                    display: 'flex', gap: '1rem', alignItems: 'center',
-                    padding: '6px 12px', background: 'rgba(15,23,42,0.6)',
-                    borderRadius: '6px', fontFamily: 'monospace', fontSize: '12px', marginTop: '0.5rem',
-                    border: `1px solid ${statusColors[exec.status]}44`,
-                  }}>
-                    <span style={{ color: statusColors[exec.status], fontWeight: 700 }}>
-                      {statusLabels[exec.status] || exec.status.toUpperCase()}
-                    </span>
-                    {exec.exitCode !== null && <span style={{ color: '#64748b' }}>Exit: {exec.exitCode}</span>}
-                    {exec.durationMs !== null && <span style={{ color: '#64748b' }}>Duration: {fmt(exec.durationMs)}</span>}
-                  </div>
+                ) : (
+                  <button onClick={() => runPlaybook(selectedPlaybook.id)} className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded font-medium text-sm transition-colors flex items-center">
+                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                    Run in Sandbox
+                  </button>
                 )}
+              </div>
+            </div>
 
-                {exec.output && (
-                  <div className="playbook-output slideUp">
-                    <h3>Execution Output</h3>
-                    <pre
-                      ref={outputRef}
-                      style={{ maxHeight: '200px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' }}
-                    >
-                      {exec.output}
-                    </pre>
+            <div className="flex-1 p-4 bg-[#1e1e1e] overflow-y-auto">
+              <pre className="text-sm font-mono text-[#d4d4d4]">
+                {/* Fallback to simple pre since Monaco is not guaranteed to be installed yet */}
+                <code>{selectedPlaybook.code || '# No source code available'}</code>
+              </pre>
+            </div>
+
+            <div className={`h-1/3 flex flex-col border-t-4 transition-colors ${currentExec?.status === 'failed' ? 'border-red-500' : currentExec?.status === 'success' ? 'border-green-500' : currentExec?.status === 'running' ? 'border-blue-500' : 'border-slate-800'}`}>
+              <div className="bg-black border-b border-slate-800 p-2 flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Sandbox Terminal</span>
+                {currentExec && (
+                  <div className="flex space-x-3">
+                    {currentExec.duration && <span className="text-xs text-slate-500">{currentExec.duration}ms</span>}
+                    {currentExec.exitCode !== undefined && <span className="text-xs text-slate-500">Exit: {currentExec.exitCode}</span>}
+                    <Badge severity={currentExec.status === 'running' ? 'S4' : currentExec.status === 'success' ? 'S3' : 'S1'} className="text-[10px] py-0">{currentExec.status}</Badge>
                   </div>
                 )}
               </div>
-            );
-          })() : (
-            <div className="empty-state">
-              <div className="empty-icon pulse-glow">⚙️</div>
-              <p>Select a playbook to edit or run in the isolated sandbox.</p>
+              <div className="flex-1 bg-black p-4 overflow-y-auto font-mono text-sm text-green-400">
+                {currentExec ? (
+                  currentExec.output.map((line, i) => <div key={i} className="mb-1">{line}</div>)
+                ) : (
+                  <div className="text-slate-600 italic">No output. Click 'Run in Sandbox' to execute.</div>
+                )}
+                <div ref={terminalEndRef} />
+              </div>
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-slate-500">
+            Select a playbook from the sidebar to view and execute.
+          </div>
+        )}
       </div>
     </div>
   );
-};
-
-export default PlaybookSandbox;
+}

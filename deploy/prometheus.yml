@@ -24,9 +24,14 @@ scrape_configs:
     # Scrape the metrics internally from the Go Core container directly, 
     # bypassing the hardened Nginx public edge proxy entirely.
     static_configs:
-      - targets: ['core-ingest:8080']
+      - targets: ['core-ingest:2112']
     
   - job_name: 'soc_agent_containers'
     # Reserved space for tracking Alpine Sandbox RAM/CPU utilization metrics
     static_configs:
       - targets: ['cadvisor:8080']
+
+  - job_name: 'soc_backend_fastapi'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['soc-backend:8000']

@@ -76,6 +76,11 @@ type IngestionServer struct {
 // This neutralizes memory allocation vulnerabilities and heap exhaustion attacks under intense logging surges.
 func (is *IngestionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Header.Get("X-Tenant-ID")
+	correlationID := r.Header.Get("X-Correlation-ID")
+	if correlationID == "" {
+		correlationID = uuid.New().String()
+	}
+
 	if tenantID == "" {
 		http.Error(w, "Access Denied: Missing X-Tenant-ID perimeter identifier", http.StatusBadRequest)
 		return
@@ -111,6 +116,7 @@ func (is *IngestionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Inject secure config parameters directly into thread execution contexts
 	ctx := context.WithValue(r.Context(), tenantConfigKey, config)
+	ctx = context.WithValue(ctx, "CorrelationID", correlationID)
 	
 	// Delegate processing down to specialized endpoint loops...
 	if r.URL.Path == "/api/v1/database/webhook" {
@@ -236,7 +242,8 @@ func (is *IngestionServer) handleAgentPush(w http.ResponseWriter, r *http.Reques
 		log.Printf("⚠️ [HTTP] Malformed PaaS payload for Tenant '%s': %v", config.TenantID, err)
 		return
 	}
-	log.Printf("✅ [HTTP] Accepted PaaS Event Log | Tenant: %s | Client: '%s' | Type: %s | Origin: %s (%s)", config.TenantID, paasPayload.ClientID, paasPayload.EventType, clientIP, cfCountry)
+	corrID, _ := ctx.Value("CorrelationID").(string)
+	log.Printf("✅ [HTTP] Accepted PaaS Event Log | Tenant: %s | CorrID: %s | Client: '%s' | Type: %s | Origin: %s (%s)", config.TenantID, corrID, paasPayload.ClientID, paasPayload.EventType, clientIP, cfCountry)
 	
 	_, err := ParseToCDM(&paasPayload, config.TenantID)
 	if err != nil {
@@ -287,7 +294,8 @@ func (is *IngestionServer) handleDatabaseWebhook(w http.ResponseWriter, r *http.
 		log.Printf("⚠️ [HTTP] Malformed Supabase payload for Tenant '%s': %v", config.TenantID, err)
 		return
 	}
-	log.Printf("✅ [HTTP] Accepted Supabase Webhook | Tenant: %s | Table: %s | Origin: %s (%s)", config.TenantID, spPayload.Table, clientIP, cfCountry)
+	corrID, _ := ctx.Value("CorrelationID").(string)
+	log.Printf("✅ [HTTP] Accepted Supabase Webhook | Tenant: %s | CorrID: %s | Table: %s | Origin: %s (%s)", config.TenantID, corrID, spPayload.Table, clientIP, cfCountry)
 	
 	// Map directly to graph and inject Tenant boundaries
 	_, err := ParseSupabaseToCDM(&spPayload, config.TenantID)
@@ -377,12 +385,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize Database-Driven Tenant Registry
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		databaseURL = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" // Fallback
-	}
-	db, err := sql.Open("postgres", databaseURL)
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost == "" { dbHost = "postgres" }
+	dbUser := os.Getenv("DB_USER")
+	if dbUser == "" { dbUser = "postgres" }
+	dbPass := os.Getenv("DB_PASSWORD")
+	if dbPass == "" { dbPass = "postgres" }
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" { dbPort = "5432" }
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" { dbName = "soc" }
+
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to PostgreSQL (Tenant Registry): %v", err)
 	}
@@ -392,6 +407,7 @@ func main() {
 	// 5.1 Initialize Background Garbage Collection & Async DLQ Processor
 	StartMemoryGarbageCollector(ctx)
 	StartBackgroundDLQProcessor(ctx)
+	StartMetricsServer("2112")
 
 	// 5.2 Initialize JWT Crypto Engine for incoming telemetry hooks
 	if err := InitJWTEngine(); err != nil {

@@ -51,4 +51,4 @@ EXPOSE 8000
 # In a strict production environment, we map the host docker GID to a non-root user here.
 # CRITICAL FIX: Directs Uvicorn to look inside the current working directory 
 # for the 'main.py' file, and initialize the 'app' instance variable.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "interfaces.main:app", "--host", "0.0.0.0", "--port", "8000"]

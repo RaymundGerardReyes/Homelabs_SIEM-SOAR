@@ -1,252 +1,98 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import apiClient from '@/shared/hooks/useAuthApi';
-import { NotificationItem } from '@/types';
-import { NAV_GROUPS } from '@/shared/config/navigation';
-import { ROUTES } from '@/shared/config/routes';
+import apiClient from '../../shared/api/apiClient';
 
-interface SidebarProps {
-  currentView: 'investigation' | 'playbooks';
-  setCurrentView: (view: 'investigation' | 'playbooks') => void;
-  resetAlertSelection: () => void;
-}
-
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, resetAlertSelection }) => {
+export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
-  const [showSearch, setShowSearch] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showNotifs, setShowNotifs] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [notifsLoading, setNotifsLoading] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const toggleMenu = (menuName: string) => {
-    setExpandedMenus(prev => ({ ...prev, [menuName]: !prev[menuName] }));
-  };
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setShowSearch(false); setShowNotifs(false); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  useEffect(() => {
-    if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [showSearch]);
-
-  const openNotifications = async () => {
-    setShowNotifs(v => !v);
-    if (!showNotifs) {
-      setNotifsLoading(true);
-      try {
-        const res = await apiClient.get<NotificationItem[]>('/data/notifications');
-        setNotifications(res.data);
-      } catch {
-        setNotifications([{
-          id: 'err', message: 'Could not load notifications.', severity: 'info',
-          timestamp: new Date().toISOString(), read: true,
-        }]);
-      } finally {
-        setNotifsLoading(false);
-      }
+  const handleLogout = async () => {
+    try {
+      await apiClient.post('/auth/logout');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      navigate('/login');
     }
   };
 
-  const navToPath = (path: string) => {
-    navigate(path);
-    resetAlertSelection();
-  };
-
-  const isActive = (path: string) => location.pathname === path;
+  const navItems = [
+    { label: 'Command Center', path: '/' },
+    { label: 'Playbooks', path: '/playbooks' },
+    { label: 'Endpoints', path: '/endpoints/hosts' },
+    { label: 'Assets', path: '/assets/inventory' },
+    { label: 'Settings', path: '/settings' },
+  ];
 
   return (
-    <div className="sidebar glass-panel-dark" role="navigation" aria-label="Main navigation">
-      <div className="sidebar-header">
-        <div className="sidebar-logo">
-          <span className="logo-icon pulse-glow">◆</span>
-          <span className="logo-text">CORTEX CLONE</span>
+    <>
+      <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen fixed left-0 top-0">
+        <div className="p-4 border-b border-slate-800">
+          <h1 className="text-xl font-bold text-white tracking-wider">AGENTIC SOC</h1>
         </div>
-      </div>
-
-      <div className="sidebar-nav">
-        <div
-          className={`nav-item ${currentView === 'investigation' ? 'active glow-border' : ''}`}
-          onClick={() => { setCurrentView('investigation'); resetAlertSelection(); }}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setCurrentView('investigation'); resetAlertSelection(); } }}
-          aria-current={currentView === 'investigation' ? 'page' : undefined}
-        >
-          <div className="nav-item-left"><div className="nav-icon cmd-icon" /> Command Center</div>
-        </div>
-
-        <div
-          className={`nav-item ${currentView === 'playbooks' ? 'active glow-border' : ''}`}
-          onClick={() => setCurrentView('playbooks')}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setCurrentView('playbooks'); }}
-          aria-current={currentView === 'playbooks' ? 'page' : undefined}
-        >
-          <div className="nav-item-left"><div className="nav-icon pb-icon" /> Playbook Sandbox</div>
-        </div>
-
-        {NAV_GROUPS.map(({ label: menuName, items }) => {
-          const isOpen = expandedMenus[menuName];
-          const anyChildActive = items.some(i => isActive(i.path));
-          return (
-            <div key={menuName} className="nav-group">
-              <div
-                className={`nav-item ${anyChildActive ? 'active glow-border' : ''}`}
-                onClick={() => toggleMenu(menuName)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggleMenu(menuName); }}
-                aria-expanded={isOpen}
-              >
-                <div className="nav-item-left"><div className="nav-icon" /> {menuName}</div>
-                <div className={`nav-arrow ${isOpen ? 'open' : ''}`} aria-hidden="true">▼</div>
-              </div>
-              {isOpen && (
-                <div className="sub-menu slide-down" role="group" aria-label={menuName}>
-                  {items.map(item => (
-                    <div
-                      key={item.path}
-                      className={`sub-menu-item hover-lift ${isActive(item.path) ? 'active' : ''}`}
-                      onClick={() => navToPath(item.path)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navToPath(item.path); }}
-                      aria-current={isActive(item.path) ? 'page' : undefined}
-                    >
-                      {item.label}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        <div
-          className="nav-item"
-          onClick={() => navToPath(ROUTES.marketplace)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navToPath(ROUTES.marketplace); }}
-          aria-current={isActive(ROUTES.marketplace) ? 'page' : undefined}
-        >
-          <div className="nav-item-left"><div className="nav-icon" /> Marketplace</div>
-        </div>
-      </div>
-
-      {showSearch && (
-        <div style={{
-          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-          background: 'rgba(15,23,42,0.97)', border: '1px solid #334155', borderRadius: '12px',
-          padding: '1.25rem', width: '480px', zIndex: 9999, boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
-        }} role="dialog" aria-label="Global Search">
-          <input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search alerts, playbooks, assets…"
-            style={{
-              width: '100%', background: '#1e293b', border: '1px solid #475569', borderRadius: '8px',
-              padding: '10px 14px', color: '#e2e8f0', fontFamily: 'monospace', fontSize: '14px',
-              outline: 'none', boxSizing: 'border-box',
-            }}
-          />
-          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '8px', fontFamily: 'monospace' }}>
-            {searchQuery ? `Searching for "${searchQuery}"… (backend integration pending)` : 'Type to search the platform.'}
-          </div>
-          <button onClick={() => setShowSearch(false)} style={{ marginTop: '0.75rem', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '12px' }}>
-            ESC to close
+        
+        <div className="p-4">
+          <button 
+            onClick={() => setSearchOpen(true)}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 text-sm py-2 px-3 rounded flex items-center justify-between transition-colors"
+          >
+            <span>Search...</span>
+            <span className="text-xs bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700">Cmd K</span>
           </button>
         </div>
-      )}
 
-      {showNotifs && (
-        <div style={{
-          position: 'fixed', bottom: '80px', left: '220px', width: '320px',
-          background: 'rgba(15,23,42,0.97)', border: '1px solid #334155', borderRadius: '10px',
-          zIndex: 9999, boxShadow: '0 16px 32px rgba(0,0,0,0.4)', overflow: 'hidden',
-        }} role="dialog" aria-label="Notifications">
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e293b', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: 700 }}>
-            Notifications
-          </div>
-          {notifsLoading ? (
-            <div style={{ padding: '1rem', color: '#64748b', fontFamily: 'monospace', fontSize: '13px' }}>Loading…</div>
-          ) : notifications.length === 0 ? (
-            <div style={{ padding: '1rem', color: '#64748b', fontFamily: 'monospace', fontSize: '13px' }}>No new notifications.</div>
-          ) : (
-            notifications.map(n => (
-              <div key={n.id} style={{
-                padding: '10px 16px', borderBottom: '1px solid #1e293b', fontFamily: 'monospace', fontSize: '12px',
-                color: n.severity === 'critical' ? '#f87171' : n.severity === 'warning' ? '#fbbf24' : '#94a3b8',
-              }}>
-                {n.message}
-                <div style={{ color: '#334155', fontSize: '10px', marginTop: '4px' }}>{new Date(n.timestamp).toLocaleTimeString()}</div>
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+          {navItems.map(item => {
+            const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${isActive ? 'bg-blue-600/20 text-blue-400 font-medium' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="p-4 border-t border-slate-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                A
               </div>
-            ))
-          )}
-        </div>
-      )}
-
-      <div className="sidebar-footer glass-panel-dark">
-        <div
-          className={`utility-item hover-lift ${isActive(ROUTES.settings) ? 'active' : ''}`}
-          onClick={() => navToPath(ROUTES.settings)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter') navToPath(ROUTES.settings); }}
-          aria-label="Settings"
-        >
-          <div className="nav-icon rounded-icon" /> Settings
-        </div>
-        <div
-          className="utility-item hover-lift"
-          onClick={() => setShowSearch(v => !v)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter') setShowSearch(v => !v); }}
-          aria-label="Open search palette"
-          aria-expanded={showSearch}
-        >
-          <div className="nav-icon rounded-icon" /> Search
-        </div>
-        <div
-          className="utility-item hover-lift"
-          onClick={openNotifications}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter') openNotifications(); }}
-          aria-label="Open notifications"
-          aria-expanded={showNotifs}
-        >
-          <div className="nav-icon rounded-icon" /> Notifications
-        </div>
-
-        <div
-          className="user-profile interactive-card"
-          onClick={() => navToPath(ROUTES.profile)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter') navToPath(ROUTES.profile); }}
-        >
-          <div className="avatar glow-avatar">PA</div>
-          <div className="user-info">
-            <span className="user-name">Principal Analyst</span>
-            <span className="user-role">Tier 3 / System Eng</span>
+              <div className="text-sm">
+                <p className="text-white font-medium">Analyst</p>
+                <p className="text-slate-500 text-xs">Tier 2</p>
+              </div>
+            </div>
+            <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 transition-colors" title="Logout">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            </button>
           </div>
         </div>
       </div>
-    </div>
-  );
-};
 
-export default Sidebar;
+      {searchOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/60 backdrop-blur-sm" onClick={() => setSearchOpen(false)}>
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <input 
+              type="text" 
+              autoFocus
+              placeholder="Search across pages, alerts, and assets..."
+              className="w-full bg-transparent text-white p-4 border-b border-slate-800 focus:outline-none text-lg"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            <div className="p-4 text-center text-slate-500">
+              {searchQuery ? `Searching for "${searchQuery}"... (API not connected)` : 'Type to start searching...'}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

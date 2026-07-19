@@ -20,6 +20,7 @@ services:
   # FRONTEND (Vite Hot-Reload)
   # ============================================================================
   soc-frontend:
+    image: soc-frontend:dev
     build:
       # Target the builder stage only, skipping the production Nginx and TLS setup
       target: builder

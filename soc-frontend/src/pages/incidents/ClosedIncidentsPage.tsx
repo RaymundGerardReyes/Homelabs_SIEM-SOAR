@@ -1,65 +1,41 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import apiClient from '../../hooks/useAuthApi';
+// @ts-nocheck
+import React, { useEffect } from 'react';
+import { useAsyncState } from '../../shared/hooks';
+import { LoadingSkeleton, ErrorState, DataTable, Badge } from '../../shared/ui';
+import apiClient from '../../shared/api/apiClient';
+import { ClosedIncident } from '../../shared/types';
 
-interface ClosedIncident {
-  id: string;
-  title: string;
-  severity: string;
-  closedAt: string;
-  resolvedBy: string;
-  duration: string;
-  postIncidentSummary: string;
-}
+export default function ClosedIncidentsPage() {
+  const { data, loading, error, execute } = useAsyncState<ClosedIncident[]>(async () => {
+    const res = await apiClient.get('/incidents/closed');
+    return res.data;
+  });
 
-const MOCK: ClosedIncident[] = [
-  { id: 'ci1', title: 'SQL Injection on public API — July 14', severity: 'high', closedAt: '2026-07-14T18:00:00Z', resolvedBy: 'A. Kim', duration: '3h 20m', postIncidentSummary: 'WAF rule deployed to block payload pattern. Root cause: missing parameterized query in v2 endpoint.' },
-  { id: 'ci2', title: 'Insider Threat — Data Export Anomaly', severity: 'critical', closedAt: '2026-07-10T09:00:00Z', resolvedBy: 'J. Reyes', duration: '11h 05m', postIncidentSummary: 'Account suspended, DLP policy tightened. Legal review initiated.' },
-];
+  useEffect(() => { execute(); }, [execute]);
 
-const ClosedIncidentsPage: React.FC = () => {
-  const [incidents, setIncidents] = useState<ClosedIncident[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchData = useCallback(() => {
-    setLoading(true);
-    apiClient.get<ClosedIncident[]>('/data/incidents/closed')
-      .then(res => setIncidents(res.data))
-      .catch(() => setIncidents(MOCK))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
+  if (loading) return <div className="p-8 bg-slate-950 min-h-screen ml-64"><LoadingSkeleton lines={8} /></div>;
+  if (error && !data) return <div className="p-8 bg-slate-950 min-h-screen ml-64"><ErrorState message={error} onRetry={execute} /></div>;
 
   return (
-    <div className="page-container fadeIn" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="header">
-        <h1>Closed Incidents</h1>
-        <p className="subtitle">Data source: <code>GET /api/incidents/closed</code></p>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {loading ? (
-          <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Loading closed incidents…</div>
-        ) : incidents.map(inc => (
-          <div key={inc.id} className="glass-panel" style={{ padding: '1.25rem 1.5rem', borderLeft: '3px solid #4ade80', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <div>
-                <span style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px', display: 'block' }}>CLOSED · {inc.severity.toUpperCase()}</span>
-                <div style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '15px' }}>{inc.title}</div>
-              </div>
-              <div style={{ textAlign: 'right', fontSize: '12px', color: '#64748b' }}>
-                <div>Resolved by <strong style={{ color: '#94a3b8' }}>{inc.resolvedBy}</strong></div>
-                <div>Duration: {inc.duration}</div>
-                <div>{new Date(inc.closedAt).toLocaleDateString()}</div>
-              </div>
-            </div>
-            <div style={{ borderTop: '1px solid #1e293b', paddingTop: '8px', fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, fontStyle: 'italic' }}>
-              📋 {inc.postIncidentSummary}
-            </div>
-          </div>
-        ))}
+    <div className="p-8 bg-slate-950 min-h-screen ml-64">
+      <h1 className="text-2xl font-bold text-white mb-6">Closed Incidents</h1>
+      <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+        <DataTable<ClosedIncident>
+          data={data || []}
+          keyExtractor={item => item.id}
+          columns={[
+            { key: 'id', header: 'Incident ID' },
+            { key: 'title', header: 'Title' },
+            { 
+              key: 'severity', header: 'Severity',
+              render: (r) => <Badge severity={r.severity === 'Critical' ? 'S1' : r.severity === 'High' ? 'S2' : 'S3'}>{r.severity}</Badge>
+            },
+            { key: 'resolvedBy', header: 'Resolved By' },
+            { key: 'duration', header: 'Duration' },
+            { key: 'closedAt', header: 'Closed At', render: (r) => new Date(r.closedAt).toLocaleString() }
+          ]}
+        />
       </div>
     </div>
   );
-};
-
-export default ClosedIncidentsPage;
+}

@@ -11,7 +11,7 @@ export function useSystemMetrics(refreshIntervalMs = 30000) {
   const fetchMetrics = async () => {
     try {
       setError(null);
-      const res = await apiClient.get<SystemMetrics>('/data/metrics/overview');
+      const res = await apiClient.get<SystemMetrics>('/metrics/overview');
       setMetrics(res.data);
     } catch {
       setError('Failed to load system metrics.');
