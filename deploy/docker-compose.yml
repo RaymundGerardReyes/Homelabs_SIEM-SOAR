@@ -76,6 +76,19 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
 
   # ============================================================================
   # 3. GO STREAM INGESTION ENGINE
@@ -87,7 +100,6 @@ services:
     container_name: soc-go-ingest-core
     networks:
       - internal-mesh
-      - public-ingress # Bound to public ingress strictly for port 8080 routing routes
     expose:
       - "9090" # Internal gRPC socket connection channel
       - "8080" # Exposed endpoint receiving unbuffered HTTP webhook packets
@@ -101,6 +113,13 @@ services:
       clickhouse-server:
         condition: service_started
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
 
   # ============================================================================
   # 4. PYTHON AI AGENT ORCHESTRATION LAYER (FastAPI / LiteLLM Router)
@@ -112,7 +131,6 @@ services:
     container_name: soc-python-ai-backend
     networks:
       - internal-mesh
-      - public-ingress
     expose:
       - "8000"
     volumes:
@@ -134,6 +152,13 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
   # ============================================================================
   # 5. DATA LAKE ENGINE (ClickHouse Columnar Storage)
@@ -151,10 +176,43 @@ services:
         soft: 262144
         hard: 262144
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
 
   # ============================================================================
   # 6. TRANSACTIONAL STATE ENGINE (PostgreSQL for Multi-Tenant Data)
   # ============================================================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: soc-node-exporter
+    networks:
+      - internal-mesh
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 128M
+
   postgres:
     image: postgres:16-alpine
     container_name: soc-postgres-state
@@ -170,5 +228,18 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
     networks:
       - internal-mesh

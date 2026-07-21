@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   internal-mesh:
     # Disabling the air-gap for local dev allows you to connect to Postgres and ClickHouse 
@@ -22,8 +20,8 @@ services:
   soc-frontend:
     image: soc-frontend:dev
     build:
-      # Target the builder stage only, skipping the production Nginx and TLS setup
-      target: builder
+      # Target the deps stage to completely skip `npm run build` during local development!
+      target: deps
     command: npm run dev -- --host 0.0.0.0
     ports:
       # Expose Vite dev server strictly to localhost
@@ -47,7 +45,7 @@ services:
   # ============================================================================
   soc-backend:
     # Run Uvicorn with the --reload flag to restart on code changes
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn Interfaces.main:app --host 0.0.0.0 --port 8000 --reload
     env_file: .env.dev
     ports:
       # Expose the FastAPI backend strictly to localhost, using env var for flexibility

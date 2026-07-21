@@ -1,16 +1,13 @@
 # ==========================================
 # STAGE 1: VITE BUILDER
 # ==========================================
-FROM node:20-alpine AS builder
-
+FROM public.ecr.aws/docker/library/node:20-alpine AS deps
 WORKDIR /app
-
-# Copy package configurations and install dependencies
 COPY soc-frontend/package.json ./
-# COPY soc-frontend/package-lock.json ./
 RUN npm install
 
-# Copy source and build
+FROM deps AS builder
+WORKDIR /app
 COPY soc-frontend/ .
 RUN npm run build
 
@@ -35,7 +32,7 @@ RUN npm run build
 #    - Fallback State: Preserves the previous running container since Docker won't
 #      deploy a broken build.
 # ==============================================================================
-FROM nginx:alpine
+FROM public.ecr.aws/docker/library/nginx:alpine
 
 # Remove default Nginx static assets
 RUN rm -rf /usr/share/nginx/html/*
@@ -52,10 +49,14 @@ RUN apk add --no-cache openssl && \
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /etc/letsencrypt/live/yourdomain.com/privkey.pem \
     -out /etc/letsencrypt/live/yourdomain.com/fullchain.pem \
-    -subj "/C=US/ST=State/L=City/O=Organization/CN=yourdomain.com"
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+
+RUN chown -R 65532:65532 /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/ /etc/letsencrypt /run || true
+USER 65532:65532
 
 # Expose standard HTTP port
 EXPOSE 80
+EXPOSE 443
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

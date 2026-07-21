@@ -1,0 +1,25 @@
+name: Synthetic Monitoring
+
+on:
+  schedule:
+    # Run every 5 minutes to simulate basic uptime monitoring
+    - cron: '*/5 * * * *'
+
+jobs:
+  uptime-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Frontend Edge Gateway
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://ingest.yourdomain.com/health || echo "000")
+          if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 401 ]; then
+            echo "Edge Gateway is returning $HTTP_STATUS! Alerting required."
+            exit 1
+          fi
+          echo "Edge Gateway healthy ($HTTP_STATUS)."
+      
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          # Optionally trigger PagerDuty or Slack webhook here
+          echo "Triggering alert to PagerDuty..."

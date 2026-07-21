@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function SettingsPage() {
   return (
-    <div className="p-8 bg-slate-950 min-h-screen ml-64">
+    <div className="p-8 bg-slate-950 min-h-screen">
       <h1 className="text-2xl font-bold text-white mb-6">Platform Settings</h1>
       <div className="max-w-3xl space-y-6">
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">

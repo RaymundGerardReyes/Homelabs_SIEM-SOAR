@@ -13,6 +13,7 @@ import { CommandCenter, InvestigationDashboard } from './features/investigations
 import { PlaybookSandbox } from './features/playbooks';
 
 // Dashboards (Lazy)
+const OverviewPage = React.lazy(() => import('./pages/dashboards/OverviewPage'));
 const ExecutiveDashboardPage = React.lazy(() => import('./pages/dashboards/ExecutiveDashboardPage'));
 const CompliancePage = React.lazy(() => import('./pages/dashboards/CompliancePage'));
 
@@ -45,10 +46,10 @@ const NotFoundPage = React.lazy(() => import('./pages/utilities/NotFoundPage'));
 // Main Application Layout Shell
 function MainLayout() {
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-300">
+    <div className="flex w-full h-screen overflow-hidden bg-slate-950 text-slate-300">
       <Sidebar />
       <div className="flex-1 overflow-auto relative">
-        <Suspense fallback={<div className="p-8 ml-64 pt-24"><LoadingSkeleton lines={10} /></div>}>
+        <Suspense fallback={<div className="p-8 pt-24"><LoadingSkeleton lines={10} /></div>}>
           <Outlet />
         </Suspense>
       </div>
@@ -73,19 +74,21 @@ function App() {
           <Route path="/investigations/:id" element={<InvestigationDashboard />} />
           <Route path="/playbooks" element={<PlaybookSandbox />} />
           
-          <Route path="/dashboards/executive" element={<ExecutiveDashboardPage />} />
-          <Route path="/dashboards/compliance" element={<CompliancePage />} />
+          <Route path="/dashboard/overview" element={<OverviewPage />} />
+          <Route path="/dashboard/executive" element={<ExecutiveDashboardPage />} />
+          <Route path="/dashboard/compliance" element={<CompliancePage />} />
           
           <Route path="/detection/rules" element={<AlertRulesPage />} />
-          <Route path="/detection/ioc-search" element={<IocSearchPage />} />
+          <Route path="/detection/ioc" element={<IocSearchPage />} />
           <Route path="/detection/feeds" element={<ThreatFeedsPage />} />
           
           <Route path="/endpoints/hosts" element={<HostManagementPage />} />
           <Route path="/endpoints/isolation" element={<IsolationControlsPage />} />
-          <Route path="/endpoints/logs" element={<EdrLogsPage />} />
+          <Route path="/endpoints/edr" element={<EdrLogsPage />} />
           
           <Route path="/incidents/active" element={<ActiveIncidentsPage />} />
           <Route path="/incidents/closed" element={<ClosedIncidentsPage />} />
+          <Route path="/incidents/war-room" element={<Navigate to="/incidents/active" replace />} />
           <Route path="/incidents/war-room/:id" element={<WarRoomPage />} />
           
           <Route path="/assets/inventory" element={<AssetInventoryPage />} />

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 import asyncpg
-from infra.http.deps import get_db
-from infra.db.repositories import UserRepository
+from Infrastructure.Http.Deps import get_db
+from Infrastructure.Database.repositories import UserRepository
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "your-google-client-id")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "your-google-client-secret")

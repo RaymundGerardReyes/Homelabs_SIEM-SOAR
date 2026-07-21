@@ -1,9 +1,9 @@
 import ast
 from datetime import datetime
 from typing import List, Dict, Any, TypedDict, Optional
-from domain.policy.engine import ActionRisk
-from infra.db.audit import append_to_audit_ledger
-from infra.grpc.client import get_grpc_stub
+from Domain.Policy.Engine import ActionRisk
+from Infrastructure.Database.audit import append_to_audit_ledger
+from Infrastructure.gRPC.Client import get_grpc_stub
 
 class AssistantAgentStub:
     def __init__(self, name: str, system_message: str):

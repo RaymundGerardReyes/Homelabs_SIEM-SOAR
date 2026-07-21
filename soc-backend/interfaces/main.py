@@ -3,16 +3,16 @@ from urllib.parse import urlparse
 import grpc
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
-from infra.grpc.client import grpc_stub_context
-from interfaces.auth import router as local_auth_router
-from interfaces.auth_google import router as google_auth_router
-from interfaces.api_routes import router as data_router
+from Infrastructure.gRPC.Client import grpc_stub_context
+from Interfaces.auth import router as local_auth_router
+from Interfaces.auth_google import router as google_auth_router
+from Interfaces.api_routes import router as data_router
 import logging
 import contextvars
 import time
 from fastapi.responses import Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from infra.metrics import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
+from Infrastructure.Metrics import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
 
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -46,7 +46,23 @@ async def lifespan(app: FastAPI):
     parsed_url = urlparse(core_url if "://" in core_url else f"grpc://{core_url}")
     core_target = f"{parsed_url.hostname}:{parsed_url.port}" if parsed_url.port else parsed_url.hostname
     
-    channel = grpc.aio.insecure_channel(core_target, options=options)
+    
+    internal_key = os.environ.get("INTERNAL_SERVICE_KEY", "dev-internal-key-change-in-prod")
+    
+    class InternalAuthInterceptor(grpc.aio.UnaryUnaryClientInterceptor, grpc.aio.UnaryStreamClientInterceptor):
+        async def intercept_unary_unary(self, continuation, client_call_details, request):
+            new_details = client_call_details._replace(
+                metadata=(client_call_details.metadata or ()) + (("x-internal-service-key", internal_key),)
+            )
+            return await continuation(new_details, request)
+            
+        async def intercept_unary_stream(self, continuation, client_call_details, request):
+            new_details = client_call_details._replace(
+                metadata=(client_call_details.metadata or ()) + (("x-internal-service-key", internal_key),)
+            )
+            return await continuation(new_details, request)
+
+    channel = grpc.aio.insecure_channel(core_target, options=options, interceptors=[InternalAuthInterceptor()])
     stub = MockIngestionCoreServiceStub(channel)
     token = grpc_stub_context.set(stub)
     logger.info("⚡ Secure Context Var connection pool active for LangGraph.")

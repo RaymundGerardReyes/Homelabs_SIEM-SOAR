@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM public.ecr.aws/docker/library/python:3.11-slim
 
 # Set environment variables to prevent Python from writing .pyc files and buffer output
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -47,8 +47,9 @@ COPY soc-backend/ /app/
 # Expose FastAPI port
 EXPOSE 8000
 
-# We must run as root (or a user added to the docker group) to access the mapped docker.sock
+RUN useradd -u 65532 nonrootuser && chown -R nonrootuser /app
+USER 65532:65532
 # In a strict production environment, we map the host docker GID to a non-root user here.
 # CRITICAL FIX: Directs Uvicorn to look inside the current working directory 
 # for the 'main.py' file, and initialize the 'app' instance variable.
-CMD ["uvicorn", "interfaces.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "Interfaces.main:app", "--host", "0.0.0.0", "--port", "8000"]

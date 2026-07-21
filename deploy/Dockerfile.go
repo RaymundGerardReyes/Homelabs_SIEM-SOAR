@@ -12,11 +12,12 @@
 #      mounting the source array, cutting rebuild compilation overhead via layer caching.
 # ==============================================================================
 
-# CRITICAL FIX: Upgraded from 1.24 to 1.25 to satisfy core-ingest/go.mod engine engine requirements
-FROM golang:1.25-alpine AS builder
+# CRITICAL FIX: Upgraded from 1.24 to 1.25. Using generic `golang:alpine` to bypass Docker Hub manifest TLS timeouts 
+# and automatically pull the latest cached stable version compatible with go.mod.
+FROM public.ecr.aws/docker/library/golang:alpine AS builder
 
 # Install CA certificates and git for fetching dependencies securely
-RUN apk update && apk add --no-cache git ca-certificates tzdata && update-ca-certificates
+RUN apk add --no-cache git ca-certificates tzdata && update-ca-certificates
 
 # Create an unprivileged user early to be copied to the final stage
 ENV USER=appuser

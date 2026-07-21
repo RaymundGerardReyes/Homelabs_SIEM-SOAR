@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { tokenService } from '../auth/tokenService';
 
 export function useWebSocketStream<T>(url: string, onMessage?: (data: T) => void) {
   const [isConnected, setIsConnected] = useState(false);
@@ -10,15 +9,10 @@ export function useWebSocketStream<T>(url: string, onMessage?: (data: T) => void
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const connect = () => {
-      const token = tokenService.getToken();
-      if (!token || tokenService.isTokenExpired(token)) {
-        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
-
+      // Relying on HttpOnly cookies, so we don't manually append a token parameter.
+      // And we DEFINITELY don't trigger a window.location page redirect in a reconnect loop!
       const wsUrl = new URL(url, window.location.href);
       wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl.searchParams.append('token', token);
 
       const ws = new WebSocket(wsUrl.toString());
       wsRef.current = ws;

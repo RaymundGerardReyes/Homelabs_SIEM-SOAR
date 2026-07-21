@@ -56,3 +56,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 -- Optimization for tracing incidents by correlation ID
 CREATE INDEX idx_audit_logs_correlation_id ON audit_logs(correlation_id);
+
+-- ==============================================================================
+-- 7. AUTHENTICATION & SECURITY: OAUTH STATE STORE
+-- ==============================================================================
+-- Temporary store for OAuth anti-CSRF state tokens to prevent replay attacks.
+CREATE TABLE IF NOT EXISTS oauth_states (
+    token VARCHAR(255) PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL
+);

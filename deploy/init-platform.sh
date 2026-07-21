@@ -46,6 +46,7 @@ fi
 PG_USER=${DB_USER:-postgres}
 PG_DB=${DB_NAME:-soc}
 PG_HOST=${DB_HOST:-postgres}
+PG_PORT=${DB_PORT:-5432}
 
 CH_USER=${CLICKHOUSE_USER:-default}
 CH_PASS=${CLICKHOUSE_PASSWORD:-clickhouse_secure_pass_123}
@@ -55,9 +56,9 @@ CH_DB=${CLICKHOUSE_DB:-soc}
 # ---------------------------------------------------------
 # PROBE 1: POSTGRESQL (OLTP) RACING DEPENDENCY
 # ---------------------------------------------------------
-echo "🔄 Probing PostgreSQL engine at ${PG_HOST}:5432..."
+echo "🔄 Probing PostgreSQL engine at ${PG_HOST}:${PG_PORT}..."
 # Wait loop utilizing pg_isready for resilient health checking
-until pg_isready -h "$PG_HOST" -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; do
+until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; do
     echo "   [Wait] PostgreSQL is booting. Retrying in 2 seconds..."
     sleep 2
 done
@@ -81,7 +82,7 @@ echo "✅ ClickHouse engine is fully awake and accepting connections."
 
 echo "⚡ Injecting Idempotent PostgreSQL Schema (OLTP State Engine)..."
 # Applying the idempotency guardrails natively inside the .sql files (IF NOT EXISTS)
-if psql -h "$PG_HOST" -U "$PG_USER" -d "$PG_DB" -f deploy/postgres_schema.sql; then
+if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -f deploy/postgres_schema.sql; then
     echo "✅ PostgreSQL schema applied successfully."
 else
     echo "🚨 CRITICAL: PostgreSQL schema injection failed! Rollback failsafe engaged."

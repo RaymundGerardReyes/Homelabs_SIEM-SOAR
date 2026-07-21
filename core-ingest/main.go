@@ -17,6 +17,9 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	// Protobuf generated mock package
@@ -429,7 +432,37 @@ func main() {
 			log.Fatalf("[FATAL] gRPC Listener Failed: %v", err)
 		}
 		
-		srv := grpc.NewServer()
+		internalServiceKey := os.Getenv("INTERNAL_SERVICE_KEY")
+		if internalServiceKey == "" { internalServiceKey = "dev-internal-key-change-in-prod" }
+
+		authInterceptor := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			md, ok := metadata.FromIncomingContext(ctx)
+			if !ok {
+				return nil, status.Errorf(codes.Unauthenticated, "metadata is not provided")
+			}
+			keys := md["x-internal-service-key"]
+			if len(keys) == 0 || keys[0] != internalServiceKey {
+				return nil, status.Errorf(codes.Unauthenticated, "invalid or missing internal service key")
+			}
+			return handler(ctx, req)
+		}
+		
+		authStreamInterceptor := func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+			md, ok := metadata.FromIncomingContext(ss.Context())
+			if !ok {
+				return status.Errorf(codes.Unauthenticated, "metadata is not provided")
+			}
+			keys := md["x-internal-service-key"]
+			if len(keys) == 0 || keys[0] != internalServiceKey {
+				return status.Errorf(codes.Unauthenticated, "invalid or missing internal service key")
+			}
+			return handler(srv, ss)
+		}
+
+		srv := grpc.NewServer(
+			grpc.UnaryInterceptor(authInterceptor),
+			grpc.StreamInterceptor(authStreamInterceptor),
+		)
 		pb.RegisterIngestionCoreServiceServer(srv, &grpcServer{})
 
 		log.Println("🚀 [gRPC] Internal Mesh Service online (0.0.0.0:9090)")

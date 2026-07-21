@@ -4,9 +4,9 @@ import logging
 import jwt
 from datetime import datetime, timedelta
 import asyncpg
-from infra.http.dto import LoginRequest, AuthResponse
-from infra.http.deps import get_db
-from infra.db.repositories import UserRepository
+from Infrastructure.Http.DataTransferObject import LoginRequest, AuthResponse
+from Infrastructure.Http.Deps import get_db
+from Infrastructure.Database.repositories import UserRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])

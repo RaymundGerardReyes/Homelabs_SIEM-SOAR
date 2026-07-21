@@ -1,7 +1,7 @@
 # Dockerfile.sandbox
 # Maps to FR4 (Execution Sandbox)
 # Ephemeral, restricted Python environment for executing untrusted playbooks.
-FROM python:3.11-alpine
+FROM public.ecr.aws/docker/library/python:3.11-alpine
 
 # Create a non-root user to mitigate Sandbox Escape risks
 RUN adduser -D -u 1000 playbook_user

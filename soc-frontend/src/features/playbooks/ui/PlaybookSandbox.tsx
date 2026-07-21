@@ -97,7 +97,7 @@ export default function PlaybookSandbox() {
   const currentExec = selectedPlaybook ? executionCache[selectedPlaybook.id] : null;
 
   return (
-    <div className="flex h-screen bg-slate-950 ml-64 pt-16">
+    <div className="flex h-screen bg-slate-950 pt-16">
       <div className="w-64 border-r border-slate-800 bg-slate-900 flex flex-col">
         <div className="p-4 border-b border-slate-800">
           <h2 className="text-white font-bold text-sm uppercase tracking-wider">Playbooks</h2>
