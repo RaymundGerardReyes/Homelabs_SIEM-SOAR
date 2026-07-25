@@ -41,8 +41,15 @@ COPY soc-backend/requirements.txt .
 # If requirements.txt doesn't exist yet, we ensure the build doesn't crash by echoing minimal deps
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; else pip install --no-cache-dir fastapi uvicorn pydantic grpcio grpcio-tools docker langgraph langchain langchain-core; fi
 
-# Copy application source
+# Copy application source & master shared proto schema
+COPY shared-proto /shared-proto
 COPY soc-backend/ /app/
+
+# Automatically generate fresh, 100% compliant Python protobuf & gRPC stubs from authoritative schema
+RUN python -m grpc_tools.protoc -I/shared-proto \
+    --python_out=pb --grpc_python_out=pb \
+    /shared-proto/soc_service.proto && \
+    sed -i 's/import soc_service_pb2 as soc__service__pb2/from . import soc_service_pb2 as soc__service__pb2/' pb/soc_service_pb2_grpc.py
 
 # Expose FastAPI port
 EXPOSE 8000
@@ -53,3 +60,4 @@ USER 65532:65532
 # CRITICAL FIX: Directs Uvicorn to look inside the current working directory 
 # for the 'main.py' file, and initialize the 'app' instance variable.
 CMD ["uvicorn", "Interfaces.main:app", "--host", "0.0.0.0", "--port", "8000"]
+

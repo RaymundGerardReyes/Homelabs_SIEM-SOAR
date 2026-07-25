@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"log"
 	"net"
 	"net/http"
@@ -18,13 +19,24 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	// Protobuf generated mock package
 	pb "core-ingest/pb"
 )
+
+// ==============================================================================
+// GLOBAL QUALIFIED EVENT CHANNEL
+// Acts as the internal pub/sub bus between the HTTP ingest handlers and the
+// gRPC streaming subscription that feeds the Python AI triage backend.
+// Buffered at 1000 to prevent ingest handlers from blocking under burst load.
+// ==============================================================================
+var qualifiedEventCh = make(chan *pb.QualifiedEvent, 1000)
+
 
 // ==========================================
 // 1. DATA STRUCTURES
@@ -41,10 +53,17 @@ type PaaSEventData struct {
 
 // RemoteLogPayload defines the exact schema expected from remote telemetry collectors.
 type RemoteLogPayload struct {
-	ClientID  string        `json:"client_id"`
-	Timestamp time.Time     `json:"timestamp"`
-	EventType string        `json:"event_type"`
-	RawData   PaaSEventData `json:"raw_data"`
+	ClientID       string        `json:"client_id"`
+	Timestamp      time.Time     `json:"timestamp"`
+	EventType      string        `json:"event_type"`
+	RawData        PaaSEventData `json:"raw_data"`
+	CFRayID        string        `json:"cf_ray_id"`
+	ClientIP       string        `json:"client_ip"`
+	EndpointID     string        `json:"endpoint_id"`
+	EndpointType   string        `json:"endpoint_type"`
+	HTTPPath       string        `json:"http_path"`
+	UserAgent      string        `json:"user_agent"`
+	TLSFingerprint string        `json:"tls_fingerprint"`
 }
 
 type contextKey string
@@ -78,11 +97,18 @@ type IngestionServer struct {
 // Hard-limits maximum payload extraction sizes using http.MaxBytesReader before running unmarshaling loops.
 // This neutralizes memory allocation vulnerabilities and heap exhaustion attacks under intense logging surges.
 func (is *IngestionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" || r.URL.Path == "/health" {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+		return
+	}
+
 	tenantID := r.Header.Get("X-Tenant-ID")
 	correlationID := r.Header.Get("X-Correlation-ID")
 	if correlationID == "" {
 		correlationID = uuid.New().String()
 	}
+
 
 	if tenantID == "" {
 		http.Error(w, "Access Denied: Missing X-Tenant-ID perimeter identifier", http.StatusBadRequest)
@@ -189,6 +215,43 @@ func (s *grpcServer) PushBlockDirective(ctx context.Context, req *pb.BlockDirect
 }
 
 // ==============================================================================
+// SubscribeToQualifiedEvents (Server-Streaming gRPC)
+// The Python soc-backend calls this once on startup to open a persistent stream.
+// core-ingest pushes every CDM-qualified telemetry event down this stream.
+// The correlationId is preserved end-to-end so the LangGraph pipeline can tag
+// all node transition events with the same ID that originated at the HTTP edge.
+// ==============================================================================
+func (s *grpcServer) SubscribeToQualifiedEvents(req *pb.SubscriptionRequest, stream pb.IngestionCoreService_SubscribeToQualifiedEventsServer) error {
+	subID := req.GetSubscriberId()
+	if subID == "" {
+		subID = "anonymous"
+	}
+	log.Printf("🔗 [gRPC] Python AI backend subscribed to qualified event stream | SubscriberID: %s", subID)
+
+	for {
+		select {
+		case event, ok := <-qualifiedEventCh:
+			if !ok {
+				// Channel closed — graceful shutdown
+				log.Printf("📴 [gRPC] Qualified event channel closed. Closing stream for subscriber: %s", subID)
+				return nil
+			}
+			if err := stream.Send(event); err != nil {
+				log.Printf("❌ [gRPC] Failed to stream event to Python backend (subscriber=%s): %v", subID, err)
+				return err // Python consumer disconnected — it will reconnect
+			}
+			log.Printf("📤 [gRPC] Dispatched QualifiedEvent | CorrID: %s | Type: %s | Endpoint: %s",
+				event.GetCorrelationId(), event.GetEventType(), event.GetEndpointId())
+
+		case <-stream.Context().Done():
+			log.Printf("📴 [gRPC] Subscriber %s disconnected gracefully.", subID)
+			return nil
+		}
+	}
+}
+
+
+// ==============================================================================
 // 1. WORKFLOW PATHWAY & LIFECYCLE PINPOINT
 //    - Step 1 of 5 in Ingestion Pipeline: First contact point at the public edge.
 //    - Upstream: Remote Edge Agents | Downstream: Event Queue & Correlation Engine
@@ -222,6 +285,22 @@ func (is *IngestionServer) handleAgentPush(w http.ResponseWriter, r *http.Reques
 	}
 
 	// 3.1 Extract True Origin IP via Cloudflare & Nginx Proxy Headers (Spoofing Prevention)
+	cfClientId := r.Header.Get("CF-Access-Client-Id")
+	cfClientSecret := r.Header.Get("CF-Access-Client-Secret")
+	endpointId := r.Header.Get("X-Endpoint-Id")
+	cfRay := r.Header.Get("CF-Ray")
+	userAgent := r.Header.Get("User-Agent")
+	tlsFingerprint := r.Header.Get("TLS-Fingerprint")
+	
+	// Check if this is an endpoint push using CF Access Tokens
+	if cfClientId == "" || cfClientSecret == "" {
+		log.Printf("❌ [Zero Trust] Rejected Unauthenticated push | Endpoint: %s | Ray: %s", endpointId, cfRay)
+		http.Error(w, "Zero Trust Violation: Missing Cloudflare Access Token", http.StatusForbidden)
+		return
+	}
+
+	log.Printf("🔒 [Zero Trust] Authenticated Spoke Agent push via CF Access | Endpoint: %s | Ray: %s", endpointId, cfRay)
+
 	clientIP := r.Header.Get("CF-Connecting-IP")
 	if clientIP == "" {
 		clientIP = r.Header.Get("X-Forwarded-For")
@@ -245,12 +324,51 @@ func (is *IngestionServer) handleAgentPush(w http.ResponseWriter, r *http.Reques
 		log.Printf("⚠️ [HTTP] Malformed PaaS payload for Tenant '%s': %v", config.TenantID, err)
 		return
 	}
+	
+	// Inject Zero Trust Identity & Tracing context
+	paasPayload.CFRayID = cfRay
+	paasPayload.ClientIP = clientIP
+	paasPayload.EndpointID = endpointId
+	paasPayload.UserAgent = userAgent
+	paasPayload.TLSFingerprint = tlsFingerprint
+	paasPayload.HTTPPath = r.URL.Path
+	
+	// Set EndpointType based on the registered EndpointID (Mocked for brevity)
+	if strings.Contains(endpointId, "local") {
+		paasPayload.EndpointType = "local_cf_tunnel"
+	} else if strings.Contains(endpointId, "iaas") {
+		paasPayload.EndpointType = "iaas"
+	} else {
+		paasPayload.EndpointType = "paas"
+	}
+	
 	corrID, _ := ctx.Value("CorrelationID").(string)
 	log.Printf("✅ [HTTP] Accepted PaaS Event Log | Tenant: %s | CorrID: %s | Client: '%s' | Type: %s | Origin: %s (%s)", config.TenantID, corrID, paasPayload.ClientID, paasPayload.EventType, clientIP, cfCountry)
 	
-	_, err := ParseToCDM(&paasPayload, config.TenantID)
+	graph, err := ParseToCDM(&paasPayload, config.TenantID)
 	if err != nil {
 		log.Printf("⚠️ [HTTP] Failed to parse PaaS payload to CDM: %v", err)
+	}
+
+	// Compute an edge risk score based on the number of detected CDM nodes
+	edgeRiskScore := uint32(len(graph.Nodes) * 15)
+	if edgeRiskScore > 100 { edgeRiskScore = 100 }
+
+	// Push the qualified event to the global channel (non-blocking)
+	// The Python AI backend subscriber will receive this and trigger the LangGraph pipeline.
+	qualifiedEvent := &pb.QualifiedEvent{
+		CorrelationId: corrID,
+		EventType:     paasPayload.EventType,
+		EndpointId:    endpointId,
+		EndpointType:  paasPayload.EndpointType,
+		RiskScore:     edgeRiskScore,
+		IngestedAt:    timestamppb.Now(),
+	}
+	select {
+	case qualifiedEventCh <- qualifiedEvent:
+		// Non-blocking send
+	default:
+		log.Printf("⚠️ [Triage Bus] Event channel full — dropping CorrID: %s (consider increasing buffer)", corrID)
 	}
 
 	// Return fast acknowledgment to free the remote agent thread
@@ -459,10 +577,25 @@ func main() {
 			return handler(srv, ss)
 		}
 
+		kaep := keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second, // Allow keepalive pings every 10s
+			PermitWithoutStream: true,             // Allow pings even when idle
+		}
+		kasp := keepalive.ServerParameters{
+			MaxConnectionIdle:     15 * time.Minute,
+			MaxConnectionAge:      24 * time.Hour,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  1 * time.Minute,
+			Timeout:               20 * time.Second,
+		}
+
 		srv := grpc.NewServer(
+			grpc.KeepaliveEnforcementPolicy(kaep),
+			grpc.KeepaliveParams(kasp),
 			grpc.UnaryInterceptor(authInterceptor),
 			grpc.StreamInterceptor(authStreamInterceptor),
 		)
+
 		pb.RegisterIngestionCoreServiceServer(srv, &grpcServer{})
 
 		log.Println("🚀 [gRPC] Internal Mesh Service online (0.0.0.0:9090)")

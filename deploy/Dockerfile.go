@@ -16,8 +16,10 @@
 # and automatically pull the latest cached stable version compatible with go.mod.
 FROM public.ecr.aws/docker/library/golang:alpine AS builder
 
-# Install CA certificates and git for fetching dependencies securely
-RUN apk add --no-cache git ca-certificates tzdata && update-ca-certificates
+# Install CA certificates, git, and protoc tools for automated stub generation
+RUN apk add --no-cache git ca-certificates tzdata protobuf protobuf-dev && update-ca-certificates
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.5 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 
 # Create an unprivileged user early to be copied to the final stage
 ENV USER=appuser
@@ -31,24 +33,24 @@ WORKDIR /app
 
 # Leverage Docker caching for Go modules
 COPY core-ingest/go.mod ./
-# COPY core-ingest/go.sum ./
 RUN go mod download
 RUN go mod verify
 
-# Copy application source code
+# Copy application source code and shared master proto schema
+COPY shared-proto /shared-proto
 COPY core-ingest/ .
 
-# Build a statically linked, stripped binary for absolute minimal size and security
-# BEFORE: 
-# RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ... -o /app/soc_ingest_core main.go
+# Automatically generate fresh, 100% compliant Go protobuf & gRPC stubs from authoritative schema
+RUN mkdir -p pb && \
+    protoc -I/shared-proto -I/usr/include \
+           --go_out=pb --go_opt=paths=source_relative \
+           --go-grpc_out=pb --go-grpc_opt=paths=source_relative \
+           /shared-proto/soc_service.proto
 
-# AFTER:
-# CRITICAL FIX: Direct the Go compiler to build the entire directory context (.) 
-# instead of isolating main.go. This links database.go, auth.go, and correlation.go.
 
-
-# CRITICAL FIX: Restored the accidentally cut-off compilation string and pointed it to the root directory (.)
+# Build a statically linked, stripped binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s -extldflags '-static'" -a -installsuffix cgo -o /app/soc_ingest_core .
+
 
 
 

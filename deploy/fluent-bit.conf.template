@@ -1,0 +1,18 @@
+[INPUT]
+    Name              tail
+    Path              /var/log/app/*.log
+    Tag               endpoint.applog
+
+[OUTPUT]
+    Name              http
+    Match             endpoint.applog
+    Host              siem.yourdomain.com
+    Port              443
+    URI               /ingest/
+    Format            json
+    tls               On
+    Header            CF-Access-Client-Id ${CF_ACCESS_CLIENT_ID}
+    Header            CF-Access-Client-Secret ${CF_ACCESS_CLIENT_SECRET}
+    Header            X-Endpoint-Id ${ENDPOINT_ID}
+    Header            X-Tenant-ID ${TENANT_ID}
+    Retry_Limit       5

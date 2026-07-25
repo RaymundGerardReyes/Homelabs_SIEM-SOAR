@@ -101,3 +101,39 @@ AS
 SELECT *
 FROM soc.remote_agent_telemetry
 WHERE threat_confidence >= 80;
+
+-- =========================================================================
+-- SECTION 5: CROSS-ENVIRONMENT CORRELATION (COMMON DATA MODEL)
+-- =========================================================================
+
+-- Unified Schema spanning PaaS, IaaS, and Local Zero Trust Tunnels
+CREATE TABLE IF NOT EXISTS soc.cdm_events (
+    timestamp DateTime64(3, 'UTC') DEFAULT now(),
+    cf_ray_id String,
+    client_ip String,
+    endpoint_id String,
+    endpoint_type LowCardinality(String),
+    http_path String,
+    user_agent String,
+    tls_fingerprint String,
+    raw_payload String
+) ENGINE = MergeTree()
+ORDER BY (client_ip, cf_ray_id, timestamp)
+PARTITION BY toYYYYMMDD(timestamp)
+TTL toDateTime(timestamp) + INTERVAL 45 DAY;
+
+-- Correlation View: Detects attackers pivoting between public PaaS and internal Tunnels
+CREATE VIEW IF NOT EXISTS soc.view_cross_environment_pivots AS
+SELECT 
+    client_ip, 
+    cf_ray_id,
+    groupArray(endpoint_id) AS endpoints_touched,
+    groupUniqArray(endpoint_type) AS endpoint_types,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen
+FROM soc.cdm_events
+WHERE timestamp > now() - INTERVAL 15 MINUTE
+GROUP BY client_ip, cf_ray_id
+HAVING length(endpoint_types) > 1
+   AND has(endpoint_types, 'paas')
+   AND has(endpoint_types, 'local_cf_tunnel');

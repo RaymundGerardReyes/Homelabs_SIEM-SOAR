@@ -36,13 +36,13 @@ services:
         # CRITICAL: Wait until Nginx passes its healthcheck before tunnel starts accepting traffic.
         # Without this, cloudflared races Nginx startup and sends traffic to an unready origin → 502.
         condition: service_healthy
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --retries 5 --grace-period 15s run
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.50'
-          memory: 128M
+          cpus: '1.0'
+          memory: 256M
 
   # ============================================================================
   # 2. EDGE INTERCEPTOR & APPLICATION FIREWALL (Nginx Proxy)
@@ -65,8 +65,10 @@ services:
     environment:
       - RESOLVER_IP=127.0.0.11
     depends_on:
-      - core-ingest
-      - soc-backend
+      core-ingest:
+        condition: service_started
+      soc-backend:
+        condition: service_healthy
     # Healthcheck: Nginx must return 200 before cloudflared is allowed to start.
     # Polls /health which proxies to FastAPI GET /api/health → {"status": "healthy"}.
     healthcheck:
@@ -87,8 +89,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 256M
+          cpus: '1.5'
+          memory: 512M
 
   # ============================================================================
   # 3. GO STREAM INGESTION ENGINE
@@ -131,6 +133,8 @@ services:
     container_name: soc-python-ai-backend
     networks:
       - internal-mesh
+      - public-ingress
+
     expose:
       - "8000"
     volumes:
@@ -146,7 +150,7 @@ services:
         condition: service_started
     # Healthcheck: FastAPI /api/health must respond before Nginx healthcheck succeeds.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

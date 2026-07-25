@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useAsyncState } from '../../shared/hooks';
 import apiClient from '../../shared/api/apiClient';
 import { LoadingSkeleton, ErrorState, Badge, StatusDot } from '../../shared/ui';
+import AgentTriageFeed from '../../features/agent-ops/AgentTriageFeed';
+import AgentResilienceStatus from '../../features/agent-ops/AgentResilienceStatus';
+import AgentChatWidget from '../../features/agent-ops/AgentChatWidget';
 
 interface OverviewMetrics {
   alertsScanned: number;
@@ -96,6 +99,13 @@ export default function OverviewPage() {
           <MetricCard title="Threats Prevented" value={metrics?.preventedEvents.toLocaleString() || '0'} color="text-emerald-400" />
         </div>
 
+        {/* LangGraph Agent Operations Panel */}
+        <div className="mb-8">
+          <h2 className="text-xl font-bold text-white mb-4">LangGraph Operations Panel</h2>
+          <AgentResilienceStatus />
+          <AgentTriageFeed />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Active Critical Alerts Queue */}
           <div className="lg:col-span-2 glass-panel-dark rounded-xl p-6 border border-slate-800 shadow-2xl flex flex-col">
@@ -180,6 +190,9 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+      
+      {/* Floating LLM Chat Assistant */}
+      <AgentChatWidget />
     </div>
   );
 }

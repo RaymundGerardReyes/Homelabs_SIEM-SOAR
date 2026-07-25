@@ -1,4 +1,5 @@
 import os
+import asyncio
 from urllib.parse import urlparse
 import grpc
 from fastapi import FastAPI, Request
@@ -7,6 +8,8 @@ from Infrastructure.gRPC.Client import grpc_stub_context
 from Interfaces.auth import router as local_auth_router
 from Interfaces.auth_google import router as google_auth_router
 from Interfaces.api_routes import router as data_router
+from Domain.Investigations.LargeLanguageModelTriage import simulate_triage_pipeline
+from pb import soc_service_pb2, soc_service_pb2_grpc
 import logging
 import contextvars
 import time
@@ -33,44 +36,106 @@ for handler in root_logger.handlers:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class MockIngestionCoreServiceStub:
-    def __init__(self, channel):
-        self.channel = channel
+async def _grpc_event_consumer(stub: soc_service_pb2_grpc.IngestionCoreServiceStub, internal_key: str):
+    """
+    Persistent background task: subscribes to the core-ingest QualifiedEvent stream.
+    For every event received, triggers the LangGraph AI triage pipeline and emits
+    node-transition events to the ws/agent/stream WebSocket feed.
+    Automatically reconnects with exponential back-off on connection loss.
+    The internal_key is passed directly as gRPC call metadata (interceptors do not
+    fire reliably on server-streaming calls in grpc.aio).
+    """
+    backoff = 1.0
+    max_backoff = 60.0
+    subscriber_id = os.environ.get("HOSTNAME", "soc-backend-01")
+    # Build the metadata tuple once — reused on every reconnect attempt.
+    auth_metadata = (("x-internal-service-key", internal_key),)
+
+    while True:
+        try:
+            logger.info(f"🔗 [Triage Consumer] Subscribing to core-ingest QualifiedEvent stream (subscriber={subscriber_id})")
+            request = soc_service_pb2.SubscriptionRequest(subscriber_id=subscriber_id)
+            # Pass the service key as call-level metadata on the server-streaming RPC.
+            stream = stub.SubscribeToQualifiedEvents(request, metadata=auth_metadata)
+
+            async for event in stream:
+                corr_id = event.correlation_id
+                event_type = event.event_type
+                endpoint_id = event.endpoint_id
+                risk_score = event.risk_score
+
+                logger.info(
+                    f"📥 [Triage Consumer] Received QualifiedEvent | CorrID={corr_id} "
+                    f"Type={event_type} Endpoint={endpoint_id} RiskScore={risk_score}"
+                )
+
+                # Fire-and-forget: spin up triage pipeline asynchronously so the
+                # gRPC stream read-loop is never blocked by AI processing latency.
+                asyncio.create_task(
+                    simulate_triage_pipeline(
+                        correlation_id=corr_id,
+                        investigation_id=f"inv-{corr_id[:8]}"
+                    )
+                )
+
+            # Stream ended gracefully — retry immediately
+            logger.warning("⚠️ [Triage Consumer] core-ingest stream ended. Reconnecting...")
+            backoff = 1.0
+
+        except grpc.aio.AioRpcError as e:
+            logger.error(f"❌ [Triage Consumer] gRPC error: {e.code()} - {e.details()}. Retry in {backoff}s")
+        except Exception as e:
+            logger.error(f"❌ [Triage Consumer] Unexpected error: {e}. Retry in {backoff}s")
+
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, max_backoff)  # Exponential back-off, cap at 60s
+
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    options = [('grpc.keepalive_time_ms', 30000)]
+    options = [
+        ('grpc.keepalive_time_ms', 60000),
+        ('grpc.keepalive_timeout_ms', 20000),
+        ('grpc.keepalive_permit_without_calls', True),
+        ('grpc.http2.min_time_between_pings_ms', 10000),
+    ]
+
     
     core_url = os.environ.get("GO_CORE_URL", "grpc://core-ingest:9090")
-    
     parsed_url = urlparse(core_url if "://" in core_url else f"grpc://{core_url}")
     core_target = f"{parsed_url.hostname}:{parsed_url.port}" if parsed_url.port else parsed_url.hostname
     
-    
     internal_key = os.environ.get("INTERNAL_SERVICE_KEY", "dev-internal-key-change-in-prod")
-    
-    class InternalAuthInterceptor(grpc.aio.UnaryUnaryClientInterceptor, grpc.aio.UnaryStreamClientInterceptor):
-        async def intercept_unary_unary(self, continuation, client_call_details, request):
-            new_details = client_call_details._replace(
-                metadata=(client_call_details.metadata or ()) + (("x-internal-service-key", internal_key),)
-            )
-            return await continuation(new_details, request)
-            
-        async def intercept_unary_stream(self, continuation, client_call_details, request):
-            new_details = client_call_details._replace(
-                metadata=(client_call_details.metadata or ()) + (("x-internal-service-key", internal_key),)
-            )
-            return await continuation(new_details, request)
 
-    channel = grpc.aio.insecure_channel(core_target, options=options, interceptors=[InternalAuthInterceptor()])
-    stub = MockIngestionCoreServiceStub(channel)
-    token = grpc_stub_context.set(stub)
-    logger.info("⚡ Secure Context Var connection pool active for LangGraph.")
+    channel = grpc.aio.insecure_channel(core_target, options=options)
+    
+    # Use the real generated stub for both existing calls and the new subscription
+    real_stub = soc_service_pb2_grpc.IngestionCoreServiceStub(channel)
+    token = grpc_stub_context.set(real_stub)
+    logger.info(f"⚡ [gRPC] Connected to core-ingest at {core_target}")
+
+    # Launch the persistent background consumer task that closes the
+    # Go -> Python -> WebSocket -> UI execution loop.
+    # NOTE: internal_key is passed directly so the consumer can attach it as
+    # call-level metadata on the server-streaming RPC (interceptors don't fire
+    # reliably for server-streaming calls in grpc.aio).
+    consumer_task = asyncio.create_task(_grpc_event_consumer(real_stub, internal_key))
+    logger.info("🚀 [Triage Consumer] Background LangGraph event consumer started.")
     
     yield
     
+
+    consumer_task.cancel()
+    try:
+        await consumer_task
+    except asyncio.CancelledError:
+        pass
+    
     grpc_stub_context.reset(token)
     await channel.close()
+    logger.info("🛑 [gRPC] Connection pool closed.")
 
 app = FastAPI(title="AI-Driven Agentic SOC Backend", lifespan=lifespan)
 app.include_router(local_auth_router, prefix="/api/auth", tags=["Authentication"])

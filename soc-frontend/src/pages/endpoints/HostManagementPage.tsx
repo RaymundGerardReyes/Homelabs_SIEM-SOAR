@@ -10,6 +10,7 @@ interface EnhancedHost extends ManagedHost {
   openIncidentsCount?: number;
   lastIsolatedDaysAgo?: number;
   trendingStale?: boolean;
+  type?: 'paas' | 'iaas' | 'local_cf_tunnel';
 }
 
 export default function HostManagementPage() {
@@ -23,6 +24,7 @@ export default function HostManagementPage() {
       openIncidentsCount: i % 4 === 0 ? Math.floor(Math.random() * 3) + 1 : 0,
       lastIsolatedDaysAgo: i % 7 === 0 ? Math.floor(Math.random() * 30) + 1 : undefined,
       trendingStale: h.health === 'healthy' && Math.random() > 0.8,
+      type: i % 4 === 0 ? 'paas' : i % 2 === 0 ? 'iaas' : 'local_cf_tunnel',
     })).sort((a: any) => (a.criticality === 'Tier-1' ? -1 : 1));
   });
 
@@ -30,8 +32,30 @@ export default function HostManagementPage() {
   const [bulkAction, setBulkAction] = useState<'restart' | 'update' | null>(null);
   const [bulkProgress, setBulkProgress] = useState<{ total: number; completed: number; failed: number } | null>(null);
   const [viewFilter, setViewFilter] = useState<'all' | 'out-of-compliance'>('all');
+  const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
 
   useEffect(() => { execute(); }, [execute]);
+
+  const handleEnrollNewSpoke = async () => {
+    try {
+      const res = await apiClient.post('/api/endpoints/generate-enrollment-token');
+      setEnrollmentToken(res.data.token);
+    } catch (e) {
+      alert('Failed to generate enrollment token');
+    }
+  };
+
+  const handleRotateCredential = async (endpointId: string) => {
+    if (window.confirm('Are you sure you want to rotate the Zero-Trust service credential for this endpoint? Existing active tunnels will be broken until re-enrolled.')) {
+      try {
+        await apiClient.post(`/api/endpoints/${endpointId}/rotate`);
+        alert('Credential rotated successfully. The agent must now be re-enrolled.');
+        execute();
+      } catch (e) {
+        alert('Failed to rotate credential');
+      }
+    }
+  };
 
   const handleBulkAction = async (action: 'restart' | 'update') => {
     setBulkAction(action);
@@ -87,7 +111,13 @@ export default function HostManagementPage() {
           <h1 className="text-2xl font-bold text-white mb-1">Host Management</h1>
           <p className="text-slate-400 text-sm">Proactive fleet health, compliance baselining, and agent operations.</p>
         </div>
-        <div className="flex items-center space-x-6 bg-slate-900 border border-slate-800 p-3 rounded-lg">
+         <div className="flex items-center space-x-6 bg-slate-900 border border-slate-800 p-3 rounded-lg">
+           <div className="text-center">
+             <button onClick={handleEnrollNewSpoke} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded shadow-lg shadow-indigo-500/20 transition-all text-sm">
+                + Enroll Spoke
+             </button>
+           </div>
+           <div className="w-px h-8 bg-slate-800"></div>
            <div className="text-center">
              <p className="text-2xl font-bold text-white">{complianceRate}%</p>
              <p className="text-xs text-slate-500 uppercase tracking-wide">Fleet Compliance</p>
@@ -99,6 +129,27 @@ export default function HostManagementPage() {
            </div>
         </div>
       </div>
+
+      {/* Enrollment Token Display */}
+      {enrollmentToken && (
+        <div className="bg-green-900/30 border border-green-500/50 p-4 rounded-lg mb-6 flex flex-col justify-between items-start">
+            <div className="flex justify-between w-full">
+                <h3 className="text-green-400 font-bold mb-2 flex items-center">
+                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    One-Time Bootstrap Token Generated
+                </h3>
+                <button onClick={() => setEnrollmentToken(null)} className="text-slate-400 hover:text-white">
+                    ✕
+                </button>
+            </div>
+            <p className="text-sm text-slate-300 mb-3">
+                Run this command on the new Spoke (Local, PaaS, or IaaS) to securely enroll it. This token expires in 15 minutes and can only be used once. Do not share it.
+            </p>
+            <div className="bg-slate-950 border border-slate-800 p-3 rounded w-full font-mono text-sm text-green-300 break-all select-all">
+                curl -fsSL https://siem.yourdomain.com/bootstrap.sh | sh -s -- --enroll-token {enrollmentToken}
+            </div>
+        </div>
+      )}
 
       {/* Bulk Operations Action Bar & Progress */}
       {(selectedIds.size > 0 || bulkProgress) && (
@@ -147,6 +198,7 @@ export default function HostManagementPage() {
               <th className="p-4">OS & Agent Baseline</th>
               <th className="p-4">Health / Telemetry</th>
               <th className="p-4">Incident Context</th>
+              <th className="p-4">Access (Zero Trust)</th>
               <th className="p-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -163,7 +215,12 @@ export default function HostManagementPage() {
                 </td>
                 <td className="p-4">
                   <div className="flex flex-col">
-                    <span className="font-bold text-white">{h.hostname}</span>
+                    <span className="font-bold text-white flex items-center space-x-2">
+                      <span>{h.hostname}</span>
+                      {h.type === 'paas' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-500/30">PaaS</span>}
+                      {h.type === 'iaas' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-500/30">IaaS</span>}
+                      {h.type === 'local_cf_tunnel' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400 border border-amber-500/30">Local (CF Tunnel)</span>}
+                    </span>
                     <span className={`text-xs mt-1 w-max px-1.5 py-0.5 rounded ${h.criticality === 'Tier-1' ? 'bg-red-900/40 text-red-400 border border-red-800/50' : 'bg-slate-800 text-slate-400'}`}>
                       {h.criticality}
                     </span>
@@ -179,14 +236,24 @@ export default function HostManagementPage() {
                 </td>
                 <td className="p-4">
                    <div className="flex flex-col space-y-2">
-                     <Badge severity={h.health === 'healthy' ? 'S4' : h.health === 'stale' ? 'S3' : 'S1'}>{h.health.toUpperCase()}</Badge>
+                     <Badge severity={h.health === 'healthy' ? 'S4' : h.health === 'stale' ? 'S3' : 'S1'}>
+                       {h.health.toUpperCase()} (HTTP AGENT)
+                     </Badge>
                      {h.trendingStale && (
                         <span className="text-xs text-yellow-500 flex items-center" title="Check-in interval increasing">
                           <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                           Trending Stale
                         </span>
                      )}
-                     <span className="text-xs text-slate-500">Last: {new Date(h.lastCheckIn).toLocaleString()}</span>
+                     <div className="flex flex-col space-y-1">
+                       <span className="text-xs text-slate-500 flex items-center">
+                         <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${h.health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} />
+                         Last Sync: {new Date(h.lastCheckIn).toLocaleTimeString()}
+                       </span>
+                       <span className="text-xs text-indigo-400 font-mono">
+                         [CF Tunnel / HTTPS]
+                       </span>
+                     </div>
                    </div>
                 </td>
                 <td className="p-4">
@@ -205,13 +272,31 @@ export default function HostManagementPage() {
                      )}
                   </div>
                 </td>
+                <td className="p-4">
+                  <div className="flex flex-col space-y-2">
+                    <span className="text-xs text-slate-300 break-all bg-slate-900 p-1 rounded">
+                      https://{h.id}.yourdomain.com
+                    </span>
+                    <a href={`https://${h.id}-ssh.yourdomain.com`} target="_blank" rel="noreferrer" className="text-[10px] uppercase tracking-wider text-red-400 hover:text-red-300 border border-red-900 bg-red-950/30 px-2 py-1 rounded w-max transition-colors">
+                      Manual / Break-Glass SSH
+                    </a>
+                  </div>
+                </td>
                 <td className="p-4 text-right">
                    <div className="flex justify-end space-x-2">
-                     <button onClick={() => navigate(`/endpoints/isolation?host=${h.id}`)} className="px-3 py-1.5 bg-red-900/30 text-red-400 hover:bg-red-900/50 rounded text-xs border border-red-500/30 transition-colors">
+                     <button 
+                       onClick={() => navigate(`/endpoints/isolation?host=${h.id}`)} 
+                       disabled={h.type === 'paas'} 
+                       title={h.type === 'paas' ? 'Isolation not applicable for PaaS endpoints' : 'Isolate Host'}
+                       className={`px-3 py-1.5 rounded text-xs border transition-colors ${h.type === 'paas' ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed' : 'bg-red-900/30 text-red-400 hover:bg-red-900/50 border-red-500/30'}`}
+                     >
                        Isolate
                      </button>
                      <button onClick={() => navigate(`/endpoints/logs?host=${h.id}`)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded transition-colors">
                        EDR Logs
+                     </button>
+                     <button onClick={() => handleRotateCredential(h.id)} className="px-3 py-1.5 bg-slate-800 hover:bg-yellow-700 text-yellow-500 hover:text-white text-xs rounded transition-colors">
+                       Rotate
                      </button>
                    </div>
                 </td>

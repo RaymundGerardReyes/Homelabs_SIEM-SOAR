@@ -8,11 +8,16 @@ import "google/protobuf/timestamp.proto";
 // The Ingestion Core Service manages type-safe data pipelines between Go and Python Agent layers.
 service IngestionCoreService {
     
-    // FETCH LOG CONTEXT (FIXED: Uses Server-to-Client Streaming to handle massive logs without RAM bloat)
+    // FETCH LOG CONTEXT: Uses Server-to-Client Streaming to handle massive logs without RAM bloat
     rpc FetchAlertContext(LogContextRequest) returns (stream LogContextResponse);
     
-    // CONTAINMENT CALLS (FIXED: Asynchronous, audited, and strictly validated)
+    // CONTAINMENT CALLS: Asynchronous, audited, and strictly validated
     rpc PushBlockDirective(BlockDirectiveRequest) returns (BlockDirectiveResponse);
+
+    // LIVE TRIAGE SUBSCRIPTION: Python AI backend subscribes to qualified events from the Go ingestion
+    // layer. Each event carries the correlationId so the LangGraph pipeline can tag all emitted
+    // observability events end-to-end. This closes the Go -> Python -> WebSocket -> UI execution loop.
+    rpc SubscribeToQualifiedEvents(SubscriptionRequest) returns (stream QualifiedEvent);
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -58,3 +63,28 @@ message BlockDirectiveResponse {
     string log_id = 2;
     google.protobuf.Timestamp executed_at = 3;
 }
+
+// ───────────────────────────────────────────────────────────────
+// LIVE TRIAGE SUBSCRIPTION CONTRACT
+// ───────────────────────────────────────────────────────────────
+
+// SubscriptionRequest is sent once by the Python consumer to open the stream.
+// subscriber_id identifies the Python backend instance (useful in multi-replica setups).
+message SubscriptionRequest {
+    string subscriber_id = 1;
+}
+
+// QualifiedEvent is a CDM-parsed, correlation-tagged telemetry event that is
+// ready for LangGraph AI triage. Carries the end-to-end correlationId generated
+// at the Go ingestion edge so all downstream LangGraph node events share the same ID.
+message QualifiedEvent {
+    string correlation_id = 1;                 // End-to-end trace ID (set at HTTP edge in core-ingest)
+    string event_type = 2;                     // e.g., "Brute_Force", "Ransomware_Behavior"
+    string endpoint_id = 3;                    // Originating spoke identity
+    string endpoint_type = 4;                  // paas | iaas | local_cf_tunnel
+    string source_ip = 5;                      // True client IP (post CF-Connecting-IP extraction)
+    uint32 risk_score = 6;                     // Pre-computed edge risk score (0-100)
+    google.protobuf.Timestamp ingested_at = 7; // Timestamp the event was accepted at the Go edge
+    string raw_payload_json = 8;               // Serialized CDM graph for advanced ML inference
+}
+

@@ -46,3 +46,37 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_INGESTIONCORESERVICE']._serialized_start=656
   _globals['_INGESTIONCORESERVICE']._serialized_end=825
 # @@protoc_insertion_point(module_scope)
+
+if 'SubscriptionRequest' not in _globals:
+    class SubscriptionRequest:
+        def __init__(self, subscriber_id=""):
+            self.subscriber_id = subscriber_id
+        def SerializeToString(self):
+            return self.subscriber_id.encode('utf-8')
+        @classmethod
+        def FromString(cls, b):
+            return cls(subscriber_id=b.decode('utf-8', errors='ignore'))
+    _globals['SubscriptionRequest'] = SubscriptionRequest
+    globals()['SubscriptionRequest'] = SubscriptionRequest
+
+if 'QualifiedEvent' not in _globals:
+    class QualifiedEvent:
+        def __init__(self, correlation_id="", event_type="", endpoint_id="", endpoint_type="", risk_score=0, ingested_at=None, raw_payload_json=""):
+            self.correlation_id = correlation_id
+            self.event_type = event_type
+            self.endpoint_id = endpoint_id
+            self.endpoint_type = endpoint_type
+            self.risk_score = risk_score
+            self.ingested_at = ingested_at
+            self.raw_payload_json = raw_payload_json
+        def SerializeToString(self):
+            return f"{self.correlation_id}:{self.event_type}".encode('utf-8')
+        @classmethod
+        def FromString(cls, b):
+            parts = b.decode('utf-8', errors='ignore').split(':')
+            corr = parts[0] if len(parts) > 0 else ""
+            ev_type = parts[1] if len(parts) > 1 else ""
+            return cls(correlation_id=corr, event_type=ev_type)
+    _globals['QualifiedEvent'] = QualifiedEvent
+    globals()['QualifiedEvent'] = QualifiedEvent
+

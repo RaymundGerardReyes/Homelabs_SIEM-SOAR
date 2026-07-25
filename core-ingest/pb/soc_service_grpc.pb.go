@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IngestionCoreService_FetchAlertContext_FullMethodName  = "/pb.IngestionCoreService/FetchAlertContext"
-	IngestionCoreService_PushBlockDirective_FullMethodName = "/pb.IngestionCoreService/PushBlockDirective"
+	IngestionCoreService_FetchAlertContext_FullMethodName            = "/pb.IngestionCoreService/FetchAlertContext"
+	IngestionCoreService_PushBlockDirective_FullMethodName          = "/pb.IngestionCoreService/PushBlockDirective"
+	IngestionCoreService_SubscribeToQualifiedEvents_FullMethodName  = "/pb.IngestionCoreService/SubscribeToQualifiedEvents"
 )
 
 // IngestionCoreServiceClient is the client API for IngestionCoreService service.
@@ -52,10 +53,12 @@ const (
 // ==============================================================================
 // The Ingestion Core Service manages type-safe data pipelines between Go and Python Agent layers.
 type IngestionCoreServiceClient interface {
-	// FETCH LOG CONTEXT (FIXED: Uses Server-to-Client Streaming to handle massive logs without RAM bloat)
+	// FETCH LOG CONTEXT: Uses Server-to-Client Streaming to handle massive logs without RAM bloat
 	FetchAlertContext(ctx context.Context, in *LogContextRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogContextResponse], error)
-	// CONTAINMENT CALLS (FIXED: Asynchronous, audited, and strictly validated)
+	// CONTAINMENT CALLS: Asynchronous, audited, and strictly validated
 	PushBlockDirective(ctx context.Context, in *BlockDirectiveRequest, opts ...grpc.CallOption) (*BlockDirectiveResponse, error)
+	// LIVE TRIAGE SUBSCRIPTION: Python AI backend subscribes to qualified events from Go ingestion edge
+	SubscribeToQualifiedEvents(ctx context.Context, in *SubscriptionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[QualifiedEvent], error)
 }
 
 type ingestionCoreServiceClient struct {
@@ -95,6 +98,25 @@ func (c *ingestionCoreServiceClient) PushBlockDirective(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *ingestionCoreServiceClient) SubscribeToQualifiedEvents(ctx context.Context, in *SubscriptionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[QualifiedEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &IngestionCoreService_ServiceDesc.Streams[1], IngestionCoreService_SubscribeToQualifiedEvents_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SubscriptionRequest, QualifiedEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility.
+type IngestionCoreService_SubscribeToQualifiedEventsClient = grpc.ServerStreamingClient[QualifiedEvent]
+
 // IngestionCoreServiceServer is the server API for IngestionCoreService service.
 // All implementations must embed UnimplementedIngestionCoreServiceServer
 // for forward compatibility.
@@ -119,10 +141,12 @@ func (c *ingestionCoreServiceClient) PushBlockDirective(ctx context.Context, in 
 // ==============================================================================
 // The Ingestion Core Service manages type-safe data pipelines between Go and Python Agent layers.
 type IngestionCoreServiceServer interface {
-	// FETCH LOG CONTEXT (FIXED: Uses Server-to-Client Streaming to handle massive logs without RAM bloat)
+	// FETCH LOG CONTEXT: Uses Server-to-Client Streaming to handle massive logs without RAM bloat
 	FetchAlertContext(*LogContextRequest, grpc.ServerStreamingServer[LogContextResponse]) error
-	// CONTAINMENT CALLS (FIXED: Asynchronous, audited, and strictly validated)
+	// CONTAINMENT CALLS: Asynchronous, audited, and strictly validated
 	PushBlockDirective(context.Context, *BlockDirectiveRequest) (*BlockDirectiveResponse, error)
+	// LIVE TRIAGE SUBSCRIPTION: Python AI backend subscribes to qualified events
+	SubscribeToQualifiedEvents(*SubscriptionRequest, grpc.ServerStreamingServer[QualifiedEvent]) error
 	mustEmbedUnimplementedIngestionCoreServiceServer()
 }
 
@@ -138,6 +162,9 @@ func (UnimplementedIngestionCoreServiceServer) FetchAlertContext(*LogContextRequ
 }
 func (UnimplementedIngestionCoreServiceServer) PushBlockDirective(context.Context, *BlockDirectiveRequest) (*BlockDirectiveResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PushBlockDirective not implemented")
+}
+func (UnimplementedIngestionCoreServiceServer) SubscribeToQualifiedEvents(*SubscriptionRequest, grpc.ServerStreamingServer[QualifiedEvent]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeToQualifiedEvents not implemented")
 }
 func (UnimplementedIngestionCoreServiceServer) mustEmbedUnimplementedIngestionCoreServiceServer() {}
 func (UnimplementedIngestionCoreServiceServer) testEmbeddedByValue()                              {}
@@ -189,9 +216,18 @@ func _IngestionCoreService_PushBlockDirective_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IngestionCoreService_SubscribeToQualifiedEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscriptionRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(IngestionCoreServiceServer).SubscribeToQualifiedEvents(m, &grpc.GenericServerStream[SubscriptionRequest, QualifiedEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility.
+type IngestionCoreService_SubscribeToQualifiedEventsServer = grpc.ServerStreamingServer[QualifiedEvent]
+
 // IngestionCoreService_ServiceDesc is the grpc.ServiceDesc for IngestionCoreService service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
 var IngestionCoreService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "pb.IngestionCoreService",
 	HandlerType: (*IngestionCoreServiceServer)(nil),
@@ -205,6 +241,11 @@ var IngestionCoreService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "FetchAlertContext",
 			Handler:       _IngestionCoreService_FetchAlertContext_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeToQualifiedEvents",
+			Handler:       _IngestionCoreService_SubscribeToQualifiedEvents_Handler,
 			ServerStreams: true,
 		},
 	},

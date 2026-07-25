@@ -208,6 +208,11 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, logs []*RemoteLog
 	if err != nil {
 		return fmt.Errorf("failed to prepare ClickHouse batch context: %w", err)
 	}
+	
+	cdmBatch, err := dm.CHPool.PrepareBatch(ctx, "INSERT INTO soc.cdm_events")
+	if err != nil {
+		return fmt.Errorf("failed to prepare ClickHouse cdm_events batch context: %w", err)
+	}
 
 	for _, l := range logs {
 		rawDataBytes, err := json.Marshal(l.RawData)
@@ -240,7 +245,24 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, logs []*RemoteLog
 			log.Printf("⚠️ [Database] Dropping corrupted log row from batch: %v", err)
 			continue
 		}
+		
+		err = cdmBatch.Append(
+			l.Timestamp,
+			l.CFRayID,
+			l.ClientIP,
+			l.EndpointID,
+			l.EndpointType,
+			l.HTTPPath,
+			l.UserAgent,
+			l.TLSFingerprint,
+			string(rawDataBytes),
+		)
+		if err != nil {
+			log.Printf("⚠️ [Database] Dropping corrupted cdm event from batch: %v", err)
+		}
 	}
+
+	_ = cdmBatch.Send() // Fire and forget for CDM Events
 
 	if err := batch.Send(); err != nil {
 		// FALLBACK: Non-Blocking DLQ Handoff

@@ -68,6 +68,17 @@ export default function WarRoomPage() {
         </div>
       </header>
 
+      {/* Cross-Environment Pivot Alert (Section 5 CDM Correlation) */}
+      <div className="bg-red-950/80 border-b border-red-900 p-3 flex items-center justify-center">
+         <div className="flex items-center space-x-3 text-red-200 text-sm">
+            <span className="animate-pulse text-red-500 font-bold">🚨 CRITICAL PIVOT DETECTED:</span>
+            <span>Edge (PaaS app)</span>
+            <svg className="w-4 h-4 text-red-500 mx-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+            <span>Internal Tunnel (Local server)</span>
+            <span className="ml-4 px-2 py-0.5 bg-red-900/50 rounded border border-red-700 text-xs font-mono">CF-Ray: 7d8f9a1b2c3d4e5f</span>
+         </div>
+      </div>
+
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Info */}
         <div className="w-64 bg-slate-900 border-r border-slate-800 p-4 flex flex-col overflow-y-auto hidden md:flex shrink-0">

@@ -400,6 +400,127 @@ func (x *BlockDirectiveResponse) GetExecutedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type SubscriptionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SubscriberId  string                 `protobuf:"bytes,1,opt,name=subscriber_id,json=subscriberId,proto3" json:"subscriber_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscriptionRequest) Reset() {
+	*x = SubscriptionRequest{}
+}
+
+func (x *SubscriptionRequest) String() string {
+	return x.SubscriberId
+}
+
+func (*SubscriptionRequest) ProtoMessage() {}
+
+func (x *SubscriptionRequest) ProtoReflect() protoreflect.Message {
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		return ms
+	}
+	return nil
+}
+
+func (*SubscriptionRequest) Descriptor() ([]byte, []int) {
+	return file_soc_service_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SubscriptionRequest) GetSubscriberId() string {
+	if x != nil {
+		return x.SubscriberId
+	}
+	return ""
+}
+
+type QualifiedEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CorrelationId  string                 `protobuf:"bytes,1,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	EventType      string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	EndpointId     string                 `protobuf:"bytes,3,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	EndpointType   string                 `protobuf:"bytes,4,opt,name=endpoint_type,json=endpointType,proto3" json:"endpoint_type,omitempty"`
+	RiskScore      uint32                 `protobuf:"varint,5,opt,name=risk_score,json=riskScore,proto3" json:"risk_score,omitempty"`
+	IngestedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ingested_at,json=ingestedAt,proto3" json:"ingested_at,omitempty"`
+	RawPayloadJson string                 `protobuf:"bytes,7,opt,name=raw_payload_json,json=rawPayloadJson,proto3" json:"raw_payload_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QualifiedEvent) Reset() {
+	*x = QualifiedEvent{}
+}
+
+func (x *QualifiedEvent) String() string {
+	return x.CorrelationId
+}
+
+func (*QualifiedEvent) ProtoMessage() {}
+
+func (x *QualifiedEvent) ProtoReflect() protoreflect.Message {
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		return ms
+	}
+	return nil
+}
+
+
+func (*QualifiedEvent) Descriptor() ([]byte, []int) {
+	return file_soc_service_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *QualifiedEvent) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *QualifiedEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *QualifiedEvent) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *QualifiedEvent) GetEndpointType() string {
+	if x != nil {
+		return x.EndpointType
+	}
+	return ""
+}
+
+func (x *QualifiedEvent) GetRiskScore() uint32 {
+	if x != nil {
+		return x.RiskScore
+	}
+	return 0
+}
+
+func (x *QualifiedEvent) GetIngestedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IngestedAt
+	}
+	return nil
+}
+
+func (x *QualifiedEvent) GetRawPayloadJson() string {
+	if x != nil {
+		return x.RawPayloadJson
+	}
+	return ""
+}
+
 var File_soc_service_proto protoreflect.FileDescriptor
 
 const file_soc_service_proto_rawDesc = "" +
@@ -496,3 +617,5 @@ func file_soc_service_proto_init() {
 	file_soc_service_proto_goTypes = nil
 	file_soc_service_proto_depIdxs = nil
 }
+
+

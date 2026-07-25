@@ -3,7 +3,8 @@
 import grpc
 import warnings
 
-import soc_service_pb2 as soc__service__pb2
+from . import soc_service_pb2 as soc__service__pb2
+
 
 GRPC_GENERATED_VERSION = '1.82.1'
 GRPC_VERSION = grpc.__version__
@@ -45,6 +46,14 @@ class IngestionCoreServiceStub:
                 request_serializer=soc__service__pb2.BlockDirectiveRequest.SerializeToString,
                 response_deserializer=soc__service__pb2.BlockDirectiveResponse.FromString,
                 _registered_method=True)
+        # LIVE TRIAGE SUBSCRIPTION: The Python backend subscribes once on startup;
+        # core-ingest streams all CDM-qualified events down this persistent channel.
+        self.SubscribeToQualifiedEvents = channel.unary_stream(
+                '/pb.IngestionCoreService/SubscribeToQualifiedEvents',
+                request_serializer=soc__service__pb2.SubscriptionRequest.SerializeToString,
+                response_deserializer=soc__service__pb2.QualifiedEvent.FromString,
+                _registered_method=True)
+
 
 
 class IngestionCoreServiceServicer:
