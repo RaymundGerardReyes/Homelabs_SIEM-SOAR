@@ -1,70 +1,200 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
+interface AgentNode {
+  name: 'Ingest' | 'Deobfuscation' | 'LLMTriage' | 'Action';
+  status: 'healthy' | 'degraded' | 'failed' | 'idle';
+  latencyMs: number;
+  lastEventAt: string | null;
+  fallbackRate: number; // 0-100 percent
+}
+
+interface ResilienceData {
+  nodes: AgentNode[];
+  totalProcessed: number;
+  fallbackTotal: number;
+  provider: string;
+}
+
+const MOCK_INITIAL: ResilienceData = {
+  nodes: [
+    { name: 'Ingest', status: 'healthy', latencyMs: 12, lastEventAt: new Date().toISOString(), fallbackRate: 0 },
+    { name: 'Deobfuscation', status: 'healthy', latencyMs: 340, lastEventAt: new Date().toISOString(), fallbackRate: 2 },
+    { name: 'LLMTriage', status: 'degraded', latencyMs: 1820, lastEventAt: new Date().toISOString(), fallbackRate: 18 },
+    { name: 'Action', status: 'healthy', latencyMs: 55, lastEventAt: new Date().toISOString(), fallbackRate: 0 },
+  ],
+  totalProcessed: 4821,
+  fallbackTotal: 91,
+  provider: 'openai/gpt-4o-mini',
+};
+
+function statusColor(status: AgentNode['status']): string {
+  switch (status) {
+    case 'healthy': return 'text-emerald-400';
+    case 'degraded': return 'text-amber-400';
+    case 'failed':   return 'text-red-400';
+    default:         return 'text-slate-500';
+  }
+}
+
+function statusBg(status: AgentNode['status']): string {
+  switch (status) {
+    case 'healthy': return 'bg-emerald-500';
+    case 'degraded': return 'bg-amber-500 animate-pulse';
+    case 'failed':   return 'bg-red-500 animate-pulse';
+    default:         return 'bg-slate-600';
+  }
+}
+
+function latencyColor(ms: number): string {
+  if (ms < 200) return 'text-emerald-400';
+  if (ms < 1000) return 'text-amber-400';
+  return 'text-red-400';
+}
 
 export default function AgentResilienceStatus() {
-  const [activeProvider, setActiveProvider] = useState<string>('openai');
-  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
-  const [isDegraded, setIsDegraded] = useState(false);
+  const [data, setData] = useState<ResilienceData>(MOCK_INITIAL);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/agent/stream');
-    
-    ws.onmessage = (msg) => {
-      const data = JSON.parse(msg.data);
-      const events = data.type === 'history' ? data.events : [data.event];
-      
-      for (const e of events) {
-        if (e.node === 'LLMTriage') {
-          if (e.status === 'FALLBACK_DETERMINISTIC_RULE_TRIGGERED') {
-            setIsDegraded(true);
-            setActiveProvider('STATIC_RULES');
-          } else if (e.provider && e.status === 'started' && e.provider !== activeProvider && e.provider !== 'static_ruleset') {
-            setActiveProvider(e.provider);
-            if (e.provider !== 'openai') {
-                setFallbackMessage(`Failover active: Switched to ${e.provider}`);
-                setTimeout(() => setFallbackMessage(null), 5000);
+    // Attempt to receive real-time updates from the agent stream WebSocket.
+    // On message, we look for a 'resilience' type update.
+    const connect = () => {
+      try {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/api/ws/agent/stream`);
+
+        ws.onopen = () => setConnected(true);
+        ws.onclose = () => {
+          setConnected(false);
+          setTimeout(connect, 5000);
+        };
+        ws.onerror = () => {
+          setConnected(false);
+        };
+        ws.onmessage = (msg) => {
+          try {
+            const d = JSON.parse(msg.data);
+            if (d.type === 'resilience') {
+              setData(d.payload);
             }
+            // Also update latency from live agent events
+            if (d.type === 'live' && d.event?.latencyMs && d.event?.node) {
+              setData(prev => ({
+                ...prev,
+                totalProcessed: prev.totalProcessed + 1,
+                nodes: prev.nodes.map(n =>
+                  n.name === d.event.node
+                    ? { ...n, latencyMs: d.event.latencyMs, lastEventAt: d.event.timestamp,
+                        status: d.event.status === 'failed' ? 'degraded' : 'healthy' }
+                    : n
+                ),
+              }));
+            }
+          } catch (_) {
+            // Ignore non-JSON WS frames
           }
-        }
+        };
+        wsRef.current = ws;
+      } catch (_) {
+        // WebSocket may not be available; fall back to mock
       }
     };
-    return () => ws.close();
-  }, [activeProvider]);
+
+    connect();
+    return () => wsRef.current?.close();
+  }, []);
+
+  const fallbackRate = data.totalProcessed > 0
+    ? ((data.fallbackTotal / data.totalProcessed) * 100).toFixed(1)
+    : '0.0';
 
   return (
-    <div className="flex flex-col space-y-2 mb-4">
-      {isDegraded && (
-        <div className="bg-red-900/30 border border-red-500 p-3 rounded flex justify-between items-center shadow-lg shadow-red-900/20">
-          <div className="flex items-center space-x-3">
-            <svg className="w-6 h-6 text-red-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-            <div>
-              <h3 className="text-red-400 font-bold text-sm uppercase tracking-wider">AI Triage Degraded</h3>
-              <p className="text-red-300 text-xs">All cloud AI providers failed. Reverted to static deterministic ruleset.</p>
-            </div>
-          </div>
-          <button onClick={() => setIsDegraded(false)} className="text-xs bg-red-950 text-red-400 hover:text-white px-3 py-1 rounded border border-red-800">
-            Acknowledge
-          </button>
-        </div>
-      )}
-
-      <div className="bg-slate-900 border border-slate-800 p-3 rounded flex items-center justify-between">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
-           <span className="text-xs text-slate-500 uppercase tracking-widest font-bold">Active Engine:</span>
-           <span className="flex items-center bg-slate-950 px-3 py-1 rounded-full border border-slate-800">
-             <span className={`w-2 h-2 rounded-full mr-2 ${
-                activeProvider === 'openai' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-                activeProvider === 'STATIC_RULES' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
-                'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
-             }`}></span>
-             <span className="text-sm font-bold text-white uppercase tracking-wider">{activeProvider}</span>
-           </span>
-        </div>
-        {fallbackMessage && (
-          <div className="text-xs text-amber-400 animate-pulse flex items-center">
-            <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-            {fallbackMessage}
+          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-widest">
+            🧠 LangGraph Node Resilience
+          </h3>
+          <div className="flex items-center space-x-1.5">
+            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
+            <span className={`text-xs font-mono ${connected ? 'text-emerald-400' : 'text-slate-500'}`}>
+              {connected ? 'LIVE' : 'MOCK'}
+            </span>
           </div>
-        )}
+        </div>
+        <div className="flex items-center space-x-4 text-xs text-slate-400">
+          <span>Provider: <span className="text-indigo-400 font-mono">{data.provider}</span></span>
+          <span>Processed: <span className="text-white font-bold">{data.totalProcessed.toLocaleString()}</span></span>
+          <span>Fallback Rate: <span className={`font-bold ${parseFloat(fallbackRate) > 10 ? 'text-amber-400' : 'text-emerald-400'}`}>{fallbackRate}%</span></span>
+        </div>
+      </div>
+
+      {/* Node Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {data.nodes.map((node, i) => (
+          <div
+            key={node.name}
+            className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex flex-col space-y-2 hover:border-slate-600 transition-colors"
+          >
+            {/* Node Name + Status Dot */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">
+                {['①','②','③','④'][i]} {node.name}
+              </span>
+              <span className={`w-2.5 h-2.5 rounded-full ${statusBg(node.status)}`} />
+            </div>
+
+            {/* Status Badge */}
+            <span className={`text-[11px] font-semibold uppercase tracking-wider ${statusColor(node.status)}`}>
+              {node.status}
+            </span>
+
+            {/* Latency Bar */}
+            <div>
+              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                <span>Latency</span>
+                <span className={`font-mono font-bold ${latencyColor(node.latencyMs)}`}>
+                  {node.latencyMs}ms
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    node.latencyMs < 200 ? 'bg-emerald-500' :
+                    node.latencyMs < 1000 ? 'bg-amber-500' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${Math.min((node.latencyMs / 2000) * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Fallback Rate */}
+            {node.fallbackRate > 0 && (
+              <div className="text-[10px] text-amber-500 font-mono">
+                ⚠ {node.fallbackRate}% fallback
+              </div>
+            )}
+
+            {/* Last Seen */}
+            {node.lastEventAt && (
+              <div className="text-[10px] text-slate-600">
+                Last: {new Date(node.lastEventAt).toLocaleTimeString([], { hour12: false })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Pipeline flow arrow */}
+      <div className="hidden md:flex items-center justify-center mt-3 space-x-2 text-[10px] text-slate-700 font-mono">
+        {data.nodes.map((n, i) => (
+          <React.Fragment key={n.name}>
+            <span className={statusColor(n.status)}>{n.name}</span>
+            {i < data.nodes.length - 1 && <span>→</span>}
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );

@@ -26,6 +26,7 @@ CREATE DATABASE IF NOT EXISTS soc;
 
 -- Main Security Logs Table
 CREATE TABLE IF NOT EXISTS soc.application_security_logs (
+    tenant_id UUID,
     event_id UUID,
     timestamp DateTime64(3, 'UTC'),
     application_name LowCardinality(String),
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS soc.application_security_logs (
 ) ENGINE = MergeTree()
 -- 1. PRIMARY KEY: Optimized for Agentic Triage context lookups 
 -- (Agents query by IP or User over recent time windows)
-ORDER BY (client_ip, timestamp, event_id)
+ORDER BY (tenant_id, client_ip, timestamp, event_id)
 -- 2. PARTITIONING: Fixed the previous "Boot Crash Bug"
 -- Partition by day to avoid "too many parts" errors during high-speed batch streaming
 PARTITION BY toYYYYMMDD(timestamp)
@@ -64,6 +65,7 @@ ALTER TABLE soc.application_security_logs ADD INDEX IF NOT EXISTS
 -- =========================================================================
 -- Remote endpoints pushing directly into the HTTP Webhook
 CREATE TABLE IF NOT EXISTS soc.remote_agent_telemetry (
+    tenant_id UUID,
     ingest_time DateTime64(3, 'UTC') DEFAULT now(),
     remote_host LowCardinality(String),
     agent_id UUID,
@@ -74,12 +76,13 @@ CREATE TABLE IF NOT EXISTS soc.remote_agent_telemetry (
     network_port UInt16,
     threat_confidence UInt8
 ) ENGINE = MergeTree()
-ORDER BY (remote_host, ingest_time, agent_id)
+ORDER BY (tenant_id, remote_host, ingest_time, agent_id)
 PARTITION BY toYYYYMMDD(ingest_time)
 TTL toDateTime(ingest_time) + INTERVAL 30 DAY;
 
 -- 1. Create the Explicit Destination Table for the Hot-Index (with Strict 14-Day TTL)
 CREATE TABLE IF NOT EXISTS soc.high_risk_alerts_storage (
+    tenant_id UUID,
     ingest_time DateTime64(3, 'UTC') DEFAULT now(),
     remote_host LowCardinality(String),
     agent_id UUID,
@@ -90,7 +93,7 @@ CREATE TABLE IF NOT EXISTS soc.high_risk_alerts_storage (
     network_port UInt16,
     threat_confidence UInt8
 ) ENGINE = MergeTree()
-ORDER BY (remote_host, ingest_time, agent_id)
+ORDER BY (tenant_id, remote_host, ingest_time, agent_id)
 PARTITION BY toYYYYMMDD(ingest_time)
 TTL toDateTime(ingest_time) + INTERVAL 14 DAY; -- Prevents Infinite Storage Leaks
 
@@ -108,6 +111,7 @@ WHERE threat_confidence >= 80;
 
 -- Unified Schema spanning PaaS, IaaS, and Local Zero Trust Tunnels
 CREATE TABLE IF NOT EXISTS soc.cdm_events (
+    tenant_id UUID,
     timestamp DateTime64(3, 'UTC') DEFAULT now(),
     cf_ray_id String,
     client_ip String,
@@ -118,13 +122,14 @@ CREATE TABLE IF NOT EXISTS soc.cdm_events (
     tls_fingerprint String,
     raw_payload String
 ) ENGINE = MergeTree()
-ORDER BY (client_ip, cf_ray_id, timestamp)
+ORDER BY (tenant_id, client_ip, cf_ray_id, timestamp)
 PARTITION BY toYYYYMMDD(timestamp)
 TTL toDateTime(timestamp) + INTERVAL 45 DAY;
 
 -- Correlation View: Detects attackers pivoting between public PaaS and internal Tunnels
 CREATE VIEW IF NOT EXISTS soc.view_cross_environment_pivots AS
 SELECT 
+    tenant_id,
     client_ip, 
     cf_ray_id,
     groupArray(endpoint_id) AS endpoints_touched,
@@ -133,7 +138,7 @@ SELECT
     max(timestamp) AS last_seen
 FROM soc.cdm_events
 WHERE timestamp > now() - INTERVAL 15 MINUTE
-GROUP BY client_ip, cf_ray_id
+GROUP BY tenant_id, client_ip, cf_ray_id
 HAVING length(endpoint_types) > 1
    AND has(endpoint_types, 'paas')
    AND has(endpoint_types, 'local_cf_tunnel');

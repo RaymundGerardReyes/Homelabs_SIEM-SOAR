@@ -36,7 +36,7 @@ export default function EdrLogsPage() {
   const [isLiveTail, setIsLiveTail] = useState(false);
   const [processTreeModal, setProcessTreeModal] = useState<EnhancedEdrLog | null>(null);
 
-  const { data, execute, setData } = useAsyncState<EnhancedEdrLog[]>(async () => {
+  const { data, execute } = useAsyncState<EnhancedEdrLog[]>(async () => {
     const hostsParam = filter.hosts.length > 0 ? filter.hosts.join(',') : 'all';
     const res = await apiClient.get(`/endpoints/logs?hosts=${hostsParam}`);
     
@@ -60,14 +60,11 @@ export default function EdrLogsPage() {
   useEffect(() => {
     if (!isLiveTail) return;
     const interval = setInterval(() => {
-      // Mock live tail
-      if (data && data.length > 0) {
-        const newLog = { ...data[Math.floor(Math.random() * data.length)], id: Math.random().toString(), timestamp: new Date().toISOString() };
-        setData([newLog, ...data].slice(0, 100));
-      }
-    }, 2000);
+      // Re-fetch live telemetry from real backend endpoint during live tail mode
+      execute();
+    }, 3000);
     return () => clearInterval(interval);
-  }, [isLiveTail, data, setData]);
+  }, [isLiveTail, execute]);
 
   const handleSaveHunt = () => {
     if (!huntNameInput) return;

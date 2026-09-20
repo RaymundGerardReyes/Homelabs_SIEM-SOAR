@@ -199,7 +199,10 @@ func (dm *DatabaseManager) Close() {
 //    - Resilience Posture: Backpressure/Dropping logs. Falls back to DLQ, but will
 //      shed load if the async buffer is full.
 // ==============================================================================
-func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, logs []*RemoteLogPayload) error {
+func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, tenantID string, logs []*RemoteLogPayload) error {
+	if tenantID == "" {
+		return fmt.Errorf("NO VALID TENANT -> NO TENANT-SCOPED TELEMETRY WRITE")
+	}
 	if len(logs) == 0 {
 		return nil
 	}
@@ -229,6 +232,7 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, logs []*RemoteLog
 		riskScore := uint8(0)
 
 		err = batch.Append(
+			tenantID,
 			eventID,
 			l.Timestamp,
 			appName,
@@ -247,6 +251,7 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, logs []*RemoteLog
 		}
 		
 		err = cdmBatch.Append(
+			tenantID,
 			l.Timestamp,
 			l.CFRayID,
 			l.ClientIP,

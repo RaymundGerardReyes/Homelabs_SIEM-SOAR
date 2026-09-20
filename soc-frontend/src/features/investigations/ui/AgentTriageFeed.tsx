@@ -40,25 +40,25 @@ export default function AgentTriageFeed({ events }: { events: AgentEvent[] }) {
 
   return (
     <div className="glass-panel-dark rounded-xl border border-slate-800 shadow-2xl flex flex-col h-full">
-      <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-        <h3 className="text-sm font-bold text-white flex items-center">
+      <div className="p-3 sm:p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 bg-slate-900/50">
+        <h3 className="text-xs sm:text-sm font-bold text-white flex items-center">
           <StatusDot status="success" pulse className="mr-2" /> 
           Live Agent Triage Feed
         </h3>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <input 
             type="text" placeholder="Filter Node..."
-            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 w-24"
+            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 flex-1 sm:w-24"
             value={filterNode} onChange={e => setFilterNode(e.target.value)}
           />
           <input 
             type="text" placeholder="Correlation ID..."
-            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 w-28"
+            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 flex-1 sm:w-28"
             value={filterCorrelation} onChange={e => setFilterCorrelation(e.target.value)}
           />
           <button 
             onClick={() => setIsPaused(!isPaused)}
-            className={`px-3 py-1 text-xs font-bold rounded ${isPaused ? 'bg-orange-600 hover:bg-orange-500' : 'bg-slate-700 hover:bg-slate-600'} text-white transition-colors`}
+            className={`px-3 py-1 text-xs font-bold rounded ${isPaused ? 'bg-orange-600 hover:bg-orange-500' : 'bg-slate-700 hover:bg-slate-600'} text-white transition-colors flex-shrink-0`}
           >
             {isPaused ? 'Resume' : 'Pause'}
           </button>

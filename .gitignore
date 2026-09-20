@@ -7,6 +7,9 @@ secrets/
 *.cert
 *.crt
 deploy/.env
+*.env.keys
+.env.keys
+deploy/.env.keys
 .env
 .env.local
 .env.development
@@ -63,6 +66,7 @@ venv.bak/
 # Dependency directories
 vendor/
 core-ingest/core-ingest
+core-ingest/soc_ingest_core
 bin/
 
 # ==============================================================================

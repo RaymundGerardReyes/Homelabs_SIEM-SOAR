@@ -6,7 +6,7 @@
 [OUTPUT]
     Name              http
     Match             endpoint.applog
-    Host              siem.yourdomain.com
+    Host              socanalyst.raymundgerardestaca.dev
     Port              443
     URI               /ingest/
     Format            json

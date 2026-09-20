@@ -1,0 +1,1 @@
+# Domain.Investigations package initialization

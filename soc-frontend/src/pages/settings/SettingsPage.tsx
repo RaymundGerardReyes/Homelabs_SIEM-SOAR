@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import apiClient from '../../hooks/useAuthApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -64,7 +64,49 @@ const DangerConfirmModal: React.FC<{ phrase: string; label: string; onConfirm: (
   );
 };
 
-type Section = 'profile' | 'notifications' | 'api-keys' | 'platform';
+type Section = 'profile' | 'notifications' | 'api-keys' | 'platform' | 'tenants';
+
+const TenantModal: React.FC<{ onClose: () => void; onSuccess: (res: any) => void }> = ({ onClose, onSuccess }) => {
+  const [tenantId, setTenantId] = useState('');
+  const [openAI, setOpenAI] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleProvision = async () => {
+    if (!tenantId) return alert('Tenant ID is required.');
+    setLoading(true);
+    try {
+      const res = await apiClient.post('/api/admin/tenants', { tenant_id: tenantId, openai_key: openAI });
+      onSuccess(res.data);
+    } catch (e: any) {
+      alert(`Failed to provision: ${e.response?.data?.detail || e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay glass-overlay fadeIn" role="dialog" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-content popIn" style={{ maxWidth: '460px', padding: '2rem' }}>
+        <h2 style={{ marginTop: 0, color: '#e2e8f0', fontSize: '18px' }}>Provision New Tenant</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '12px', color: '#64748b' }}>Tenant ID (e.g. acme-corp)</label>
+            <input type="text" className="glass-input" value={tenantId} onChange={e => setTenantId(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '12px', color: '#64748b' }}>OpenAI Key (Optional)</label>
+            <input type="password" className="glass-input" value={openAI} onChange={e => setOpenAI(e.target.value)} />
+          </div>
+        </div>
+        <div className="modal-actions" style={{ marginTop: '2rem' }}>
+          <button className="btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
+          <button className="premium-btn" onClick={handleProvision} disabled={loading}>{loading ? 'Provisioning...' : 'Provision Tenant'}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 const SettingsPage: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -73,6 +115,8 @@ const SettingsPage: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>('profile');
   const [dangerModal, setDangerModal] = useState<{ phrase: string; label: string; onConfirm: () => void } | null>(null);
+  const [tenantModalOpen, setTenantModalOpen] = useState(false);
+  const [provisionResult, setProvisionResult] = useState<any>(null);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -130,6 +174,7 @@ const SettingsPage: React.FC = () => {
     { id: 'profile', label: '👤 Profile' },
     { id: 'notifications', label: '🔔 Notifications' },
     { id: 'api-keys', label: '🔑 API Keys' },
+    { id: 'tenants', label: '🏢 Tenant Management' },
     { id: 'platform', label: '⚙ Platform' },
   ];
 
@@ -235,6 +280,32 @@ const SettingsPage: React.FC = () => {
           </div>
         )}
 
+        {activeSection === 'tenants' && (
+          <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#94a3b8', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Tenant Administration</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>Provision and manage multi-tenant workspaces automatically.</p>
+              </div>
+              <button className="premium-btn" onClick={() => setTenantModalOpen(true)}>+ Onboard Tenant</button>
+            </div>
+
+            {provisionResult && (
+              <div style={{ padding: '1rem', background: 'rgba(74,222,128,0.05)', border: '1px solid #4ade80', borderRadius: '6px', marginTop: '1rem' }}>
+                <h4 style={{ margin: '0 0 8px 0', color: '#4ade80', fontSize: '14px' }}>✅ Tenant Provisioned Successfully</h4>
+                <div style={{ fontSize: '12px', color: '#94a3b8', display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px' }}>
+                  <strong>Tenant ID:</strong> <span>{provisionResult.tenant_id}</span>
+                  <strong>Database:</strong> <span>{provisionResult.clickhouse_db}</span>
+                  <strong>Agent Secret:</strong> <code style={{ color: '#e2e8f0' }}>{provisionResult.webhook_secret}</code>
+                </div>
+                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '12px', marginBottom: 0 }}>
+                  Agent instances should use the above secret to authenticate outbound telemetry. The edge gateway has dynamically configured <code>{provisionResult.tenant_id}.socanalyst.raymundgerardestaca.dev</code>.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeSection === 'platform' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -275,6 +346,16 @@ const SettingsPage: React.FC = () => {
           label={dangerModal.label}
           onConfirm={dangerModal.onConfirm}
           onCancel={() => setDangerModal(null)}
+        />
+      )}
+
+      {tenantModalOpen && (
+        <TenantModal
+          onClose={() => setTenantModalOpen(false)}
+          onSuccess={(res) => {
+            setProvisionResult(res);
+            setTenantModalOpen(false);
+          }}
         />
       )}
     </div>

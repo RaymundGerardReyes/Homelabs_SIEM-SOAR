@@ -3,8 +3,10 @@
 import grpc
 import warnings
 
-from . import soc_service_pb2 as soc__service__pb2
-
+try:
+    from . import soc_service_pb2 as soc__service__pb2
+except ImportError:
+    import soc_service_pb2 as soc__service__pb2
 
 GRPC_GENERATED_VERSION = '1.82.1'
 GRPC_VERSION = grpc.__version__
@@ -46,8 +48,6 @@ class IngestionCoreServiceStub:
                 request_serializer=soc__service__pb2.BlockDirectiveRequest.SerializeToString,
                 response_deserializer=soc__service__pb2.BlockDirectiveResponse.FromString,
                 _registered_method=True)
-        # LIVE TRIAGE SUBSCRIPTION: The Python backend subscribes once on startup;
-        # core-ingest streams all CDM-qualified events down this persistent channel.
         self.SubscribeToQualifiedEvents = channel.unary_stream(
                 '/pb.IngestionCoreService/SubscribeToQualifiedEvents',
                 request_serializer=soc__service__pb2.SubscriptionRequest.SerializeToString,
@@ -55,20 +55,28 @@ class IngestionCoreServiceStub:
                 _registered_method=True)
 
 
-
 class IngestionCoreServiceServicer:
     """The Ingestion Core Service manages type-safe data pipelines between Go and Python Agent layers.
     """
 
     def FetchAlertContext(self, request, context):
-        """FETCH LOG CONTEXT (FIXED: Uses Server-to-Client Streaming to handle massive logs without RAM bloat)
+        """FETCH LOG CONTEXT: Uses Server-to-Client Streaming to handle massive logs without RAM bloat
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def PushBlockDirective(self, request, context):
-        """CONTAINMENT CALLS (FIXED: Asynchronous, audited, and strictly validated)
+        """CONTAINMENT CALLS: Asynchronous, audited, and strictly validated
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SubscribeToQualifiedEvents(self, request, context):
+        """LIVE TRIAGE SUBSCRIPTION: Python AI backend subscribes to qualified events from the Go ingestion
+        layer. Each event carries the correlationId so the LangGraph pipeline can tag all emitted
+        observability events end-to-end. This closes the Go -> Python -> WebSocket -> UI execution loop.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -86,6 +94,11 @@ def add_IngestionCoreServiceServicer_to_server(servicer, server):
                     servicer.PushBlockDirective,
                     request_deserializer=soc__service__pb2.BlockDirectiveRequest.FromString,
                     response_serializer=soc__service__pb2.BlockDirectiveResponse.SerializeToString,
+            ),
+            'SubscribeToQualifiedEvents': grpc.unary_stream_rpc_method_handler(
+                    servicer.SubscribeToQualifiedEvents,
+                    request_deserializer=soc__service__pb2.SubscriptionRequest.FromString,
+                    response_serializer=soc__service__pb2.QualifiedEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -143,6 +156,33 @@ class IngestionCoreService:
             '/pb.IngestionCoreService/PushBlockDirective',
             soc__service__pb2.BlockDirectiveRequest.SerializeToString,
             soc__service__pb2.BlockDirectiveResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubscribeToQualifiedEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/pb.IngestionCoreService/SubscribeToQualifiedEvents',
+            soc__service__pb2.SubscriptionRequest.SerializeToString,
+            soc__service__pb2.QualifiedEvent.FromString,
             options,
             channel_credentials,
             insecure,

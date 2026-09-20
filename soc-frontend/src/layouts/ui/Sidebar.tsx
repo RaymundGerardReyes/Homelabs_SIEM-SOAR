@@ -7,7 +7,11 @@ import { ROUTES } from '@/shared/config/routes';
 import { CommandPalette } from './CommandPalette';
 import { NotificationCenter } from './NotificationCenter';
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
@@ -55,17 +59,27 @@ const Sidebar: React.FC = () => {
 
   const navToPath = (path: string) => {
     navigate(path);
+    onClose?.();
   };
 
   const isActive = (path: string) => location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
 
   return (
     <div className="sidebar glass-panel-dark z-50" role="navigation" aria-label="Main navigation">
-      <div className="sidebar-header">
+      <div className="sidebar-header flex items-center justify-between">
         <div className="sidebar-logo">
           <span className="logo-icon pulse-glow">◆</span>
           <span className="logo-text">CORTEX CLONE</span>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors"
+            aria-label="Close navigation sidebar"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <div className="sidebar-nav">

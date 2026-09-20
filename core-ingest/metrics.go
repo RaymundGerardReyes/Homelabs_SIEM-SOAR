@@ -39,6 +39,15 @@ var (
 			Help: "The total number of batches routed to the bbolt disk WAL due to ClickHouse failures.",
 		},
 	)
+
+	// Phase 5: SRE Agent Fabric Metrics
+	IngestErrorRate = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "soc_core_ingest_errors_total",
+			Help: "Total telemetry ingest parsing or auth errors",
+		},
+		[]string{"tenant_id", "status_code"},
+	)
 )
 
 // StartMetricsServer exposes the /metrics endpoint strictly on an internal management port

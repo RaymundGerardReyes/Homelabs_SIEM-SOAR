@@ -17,16 +17,6 @@ interface MarketplaceListing {
   tags: string[];
 }
 
-const MOCK_LISTINGS: MarketplaceListing[] = [
-  { id: 'ml-1', name: 'AlienVault OTX Connector', publisher: 'AT&T Cybersecurity', category: 'threat-intel', status: 'installed', requiresElevated: false, tags: ['threat-intel', 'feeds'], description: 'Integrates AlienVault OTX threat feed for IP, domain, and hash reputation.' },
-  { id: 'ml-2', name: 'Abuse.ch URLhaus Feed', publisher: 'Abuse.ch', category: 'threat-intel', status: 'not_installed', requiresElevated: false, tags: ['threat-intel', 'urls'], description: 'Real-time feed of malicious URLs from the Abuse.ch URLhaus project.' },
-  { id: 'ml-3', name: 'Ransomware Auto-Contain Playbook', publisher: 'Cortex Labs', category: 'soar-playbook', status: 'installed', requiresElevated: true,
-    playbookPreview: "# Ransomware Auto-Contain\n# Trigger: Malware_Detected severity=CRITICAL\n\ndef run(context):\n    target = context['target_host']\n    sdk.isolate_host(target)\n    sdk.tag_alert(context['alert_id'], ['auto-contained', 'ransomware'])\n    return f'[SUCCESS] Host {target} isolated and alert tagged.'\n",
-    tags: ['soar', 'ransomware', 'auto-response'], description: 'Automatically isolates hosts with confirmed ransomware activity and tags the associated alert.' },
-  { id: 'ml-4', name: 'MITRE ATT&CK Detection Pack', publisher: 'Community', category: 'detection-pack', status: 'not_installed', requiresElevated: true, tags: ['detection', 'mitre'], description: '75 detection rules mapped to the MITRE ATT&CK framework covering Tactics T1059–T1190.' },
-  { id: 'ml-5', name: 'PagerDuty Incident Integration', publisher: 'PagerDuty', category: 'integration', status: 'not_installed', requiresElevated: false, tags: ['pagerduty', 'alerting'], description: 'Routes critical incidents to PagerDuty on-call schedules automatically.' },
-];
-
 const CATEGORY_META: Record<ListingCategory, { label: string; color: string }> = {
   'threat-intel':    { label: 'Threat Intel',      color: '#38bdf8' },
   'soar-playbook':   { label: 'SOAR Playbook',     color: '#a78bfa' },
@@ -44,9 +34,12 @@ const MarketplacePage: React.FC = () => {
 
   const fetchData = useCallback(() => {
     setLoading(true);
-    apiClient.get<MarketplaceListing[]>('/data/marketplace/listings')
-      .then(res => setListings(res.data))
-      .catch(() => setListings(MOCK_LISTINGS))
+    apiClient.get<MarketplaceListing[]>('/api/marketplace/listings')
+      .then(res => setListings(res.data || []))
+      .catch((err) => {
+        console.error('Failed to load marketplace listings:', err);
+        setListings([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -56,10 +49,11 @@ const MarketplacePage: React.FC = () => {
     if (listing.requiresElevated && !window.confirm(`"${listing.name}" requires elevated permissions. Proceed?`)) return;
     setInstallingId(listing.id);
     try {
-      await apiClient.post(`/data/marketplace/listings/${listing.id}/install`);
+      await apiClient.post(`/api/marketplace/listings/${listing.id}/install`);
       setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: 'installed' } : l));
-    } catch {
-      setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: 'installed' } : l)); // optimistic for demo
+    } catch (err) {
+      console.error('Failed to install listing:', err);
+      // Removed optimistic update on failure to ensure UI reflects actual DB state
     } finally {
       setInstallingId(null);
     }
@@ -68,10 +62,10 @@ const MarketplacePage: React.FC = () => {
   const handleUninstall = async (listing: MarketplaceListing) => {
     if (!window.confirm(`Uninstall "${listing.name}"?`)) return;
     try {
-      await apiClient.delete(`/data/marketplace/listings/${listing.id}/install`);
+      await apiClient.delete(`/api/marketplace/listings/${listing.id}/install`);
       setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: 'not_installed' } : l));
-    } catch {
-      setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: 'not_installed' } : l));
+    } catch (err) {
+      console.error('Failed to uninstall listing:', err);
     }
   };
 

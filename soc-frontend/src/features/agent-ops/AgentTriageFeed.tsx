@@ -23,7 +23,8 @@ export default function AgentTriageFeed() {
 
   useEffect(() => {
     const connect = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws/agent/stream');
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${wsProtocol}//${window.location.host}/api/ws/agent/stream`);
       
       ws.onopen = () => {
         console.log('Connected to Agent Triage Feed');

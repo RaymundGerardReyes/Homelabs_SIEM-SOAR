@@ -14,7 +14,8 @@ export default function AgentChatWidget() {
     if (!isOpen) return;
 
     const connect = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws/agent/chat');
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${wsProtocol}//${window.location.host}/api/ws/agent/chat`);
       
       ws.onmessage = (msg) => {
         const data = JSON.parse(msg.data);

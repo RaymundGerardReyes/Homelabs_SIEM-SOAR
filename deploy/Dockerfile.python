@@ -33,6 +33,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    wget \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
@@ -54,6 +55,7 @@ RUN python -m grpc_tools.protoc -I/shared-proto \
 # Expose FastAPI port
 EXPOSE 8000
 
+# Create non-root user BEFORE chown — curl must remain globally accessible
 RUN useradd -u 65532 nonrootuser && chown -R nonrootuser /app
 USER 65532:65532
 # In a strict production environment, we map the host docker GID to a non-root user here.

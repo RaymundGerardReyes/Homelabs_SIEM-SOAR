@@ -105,7 +105,7 @@ class MultiTenantLLMOrchestrator:
             # 🔗 METADATA REGISTRY BINDINGS & SCHEMAS
             # Securely retrieve the active tenant's context without passing raw keys via args.
             # This completely eliminates parameter injection race conditions across the event loop.
-            tenant_config = get_tenant_config()
+            tenant_config = await get_tenant_config()
             tenant_id = tenant_config.get("tenant_id", "default_fallback_tenant")
             dynamic_openai_key = tenant_config.get("openai_key")
             dynamic_anthropic_key = tenant_config.get("anthropic_key")

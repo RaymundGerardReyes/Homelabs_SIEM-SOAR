@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11soc_service.proto\x12\x02pb\x1a\x1fgoogle/protobuf/timestamp.proto\"D\n\x11LogContextRequest\x12\x14\n\x0c\x65vidence_ids\x18\x01 \x03(\t\x12\x19\n\x11max_records_limit\x18\x02 \x01(\x05\"\xae\x01\n\x13SecurityEventDetail\x12\x10\n\x08\x65vent_id\x18\x01 \x01(\t\x12-\n\ttimestamp\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x11\n\tsource_ip\x18\x03 \x01(\t\x12\x16\n\x0eprincipal_user\x18\x04 \x01(\t\x12\x17\n\x0f\x61\x63tion_executed\x18\x05 \x01(\t\x12\x12\n\nrisk_score\x18\x06 \x01(\r\"j\n\x12LogContextResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x1b\n\x13\x63urrent_batch_index\x18\x02 \x01(\x05\x12\'\n\x06\x65vents\x18\x03 \x03(\x0b\x32\x17.pb.SecurityEventDetail\"\x83\x01\n\x15\x42lockDirectiveRequest\x12\x12\n\nip_address\x18\x01 \x01(\t\x12\x15\n\rjustification\x18\x02 \x01(\t\x12\x10\n\x08\x61\x63tor_id\x18\x03 \x01(\t\x12\x12\n\nsession_id\x18\x04 \x01(\t\x12\x19\n\x11\x61uthorization_jwt\x18\x05 \x01(\t\"j\n\x16\x42lockDirectiveResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0e\n\x06log_id\x18\x02 \x01(\t\x12/\n\x0b\x65xecuted_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp2\xa9\x01\n\x14IngestionCoreService\x12\x44\n\x11\x46\x65tchAlertContext\x12\x15.pb.LogContextRequest\x1a\x16.pb.LogContextResponse0\x01\x12K\n\x12PushBlockDirective\x12\x19.pb.BlockDirectiveRequest\x1a\x1a.pb.BlockDirectiveResponseB\x10Z\x0e\x63ore-ingest/pbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11soc_service.proto\x12\x02pb\x1a\x1fgoogle/protobuf/timestamp.proto\"D\n\x11LogContextRequest\x12\x14\n\x0c\x65vidence_ids\x18\x01 \x03(\t\x12\x19\n\x11max_records_limit\x18\x02 \x01(\x05\"\xfc\x02\n\x13SecurityEventDetail\x12\x10\n\x08\x65vent_id\x18\x01 \x01(\t\x12-\n\ttimestamp\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x11\n\tsource_ip\x18\x03 \x01(\t\x12\x16\n\x0eprincipal_user\x18\x04 \x01(\t\x12\x17\n\x0f\x61\x63tion_executed\x18\x05 \x01(\t\x12\x12\n\nrisk_score\x18\x06 \x01(\r\x12\x16\n\x0e\x64\x65stination_ip\x18\x07 \x01(\t\x12\x18\n\x10\x64\x65stination_port\x18\x08 \x01(\x05\x12\x10\n\x08protocol\x18\t \x01(\t\x12\x12\n\ndns_domain\x18\n \x01(\t\x12\x0f\n\x07\x66low_id\x18\x0b \x01(\t\x12\x11\n\tbytes_out\x18\x0c \x01(\x04\x12\x10\n\x08\x62ytes_in\x18\r \x01(\x04\x12\x13\n\x0bpackets_out\x18\x0e \x01(\r\x12\x12\n\npackets_in\x18\x0f \x01(\r\x12\x15\n\rflow_duration\x18\x10 \x01(\x01\"j\n\x12LogContextResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x1b\n\x13\x63urrent_batch_index\x18\x02 \x01(\x05\x12\'\n\x06\x65vents\x18\x03 \x03(\x0b\x32\x17.pb.SecurityEventDetail\"\x83\x01\n\x15\x42lockDirectiveRequest\x12\x12\n\nip_address\x18\x01 \x01(\t\x12\x15\n\rjustification\x18\x02 \x01(\t\x12\x10\n\x08\x61\x63tor_id\x18\x03 \x01(\t\x12\x12\n\nsession_id\x18\x04 \x01(\t\x12\x19\n\x11\x61uthorization_jwt\x18\x05 \x01(\t\"j\n\x16\x42lockDirectiveResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0e\n\x06log_id\x18\x02 \x01(\t\x12/\n\x0b\x65xecuted_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\",\n\x13SubscriptionRequest\x12\x15\n\rsubscriber_id\x18\x01 \x01(\t\"\xf4\x01\n\x0eQualifiedEvent\x12\x16\n\x0e\x63orrelation_id\x18\x01 \x01(\t\x12\x12\n\nevent_type\x18\x02 \x01(\t\x12\x13\n\x0b\x65ndpoint_id\x18\x03 \x01(\t\x12\x15\n\rendpoint_type\x18\x04 \x01(\t\x12\x11\n\tsource_ip\x18\x05 \x01(\t\x12\x12\n\nrisk_score\x18\x06 \x01(\r\x12/\n\x0bingested_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x18\n\x10raw_payload_json\x18\x08 \x01(\t\x12\x18\n\x10provenance_graph\x18\t \x01(\t2\xf6\x01\n\x14IngestionCoreService\x12\x44\n\x11\x46\x65tchAlertContext\x12\x15.pb.LogContextRequest\x1a\x16.pb.LogContextResponse0\x01\x12K\n\x12PushBlockDirective\x12\x19.pb.BlockDirectiveRequest\x1a\x1a.pb.BlockDirectiveResponse\x12K\n\x1aSubscribeToQualifiedEvents\x12\x17.pb.SubscriptionRequest\x1a\x12.pb.QualifiedEvent0\x01\x42\x10Z\x0e\x63ore-ingest/pbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,47 +36,17 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_LOGCONTEXTREQUEST']._serialized_start=58
   _globals['_LOGCONTEXTREQUEST']._serialized_end=126
   _globals['_SECURITYEVENTDETAIL']._serialized_start=129
-  _globals['_SECURITYEVENTDETAIL']._serialized_end=303
-  _globals['_LOGCONTEXTRESPONSE']._serialized_start=305
-  _globals['_LOGCONTEXTRESPONSE']._serialized_end=411
-  _globals['_BLOCKDIRECTIVEREQUEST']._serialized_start=414
-  _globals['_BLOCKDIRECTIVEREQUEST']._serialized_end=545
-  _globals['_BLOCKDIRECTIVERESPONSE']._serialized_start=547
-  _globals['_BLOCKDIRECTIVERESPONSE']._serialized_end=653
-  _globals['_INGESTIONCORESERVICE']._serialized_start=656
-  _globals['_INGESTIONCORESERVICE']._serialized_end=825
+  _globals['_SECURITYEVENTDETAIL']._serialized_end=509
+  _globals['_LOGCONTEXTRESPONSE']._serialized_start=511
+  _globals['_LOGCONTEXTRESPONSE']._serialized_end=617
+  _globals['_BLOCKDIRECTIVEREQUEST']._serialized_start=620
+  _globals['_BLOCKDIRECTIVEREQUEST']._serialized_end=751
+  _globals['_BLOCKDIRECTIVERESPONSE']._serialized_start=753
+  _globals['_BLOCKDIRECTIVERESPONSE']._serialized_end=859
+  _globals['_SUBSCRIPTIONREQUEST']._serialized_start=861
+  _globals['_SUBSCRIPTIONREQUEST']._serialized_end=905
+  _globals['_QUALIFIEDEVENT']._serialized_start=908
+  _globals['_QUALIFIEDEVENT']._serialized_end=1152
+  _globals['_INGESTIONCORESERVICE']._serialized_start=1155
+  _globals['_INGESTIONCORESERVICE']._serialized_end=1401
 # @@protoc_insertion_point(module_scope)
-
-if 'SubscriptionRequest' not in _globals:
-    class SubscriptionRequest:
-        def __init__(self, subscriber_id=""):
-            self.subscriber_id = subscriber_id
-        def SerializeToString(self):
-            return self.subscriber_id.encode('utf-8')
-        @classmethod
-        def FromString(cls, b):
-            return cls(subscriber_id=b.decode('utf-8', errors='ignore'))
-    _globals['SubscriptionRequest'] = SubscriptionRequest
-    globals()['SubscriptionRequest'] = SubscriptionRequest
-
-if 'QualifiedEvent' not in _globals:
-    class QualifiedEvent:
-        def __init__(self, correlation_id="", event_type="", endpoint_id="", endpoint_type="", risk_score=0, ingested_at=None, raw_payload_json=""):
-            self.correlation_id = correlation_id
-            self.event_type = event_type
-            self.endpoint_id = endpoint_id
-            self.endpoint_type = endpoint_type
-            self.risk_score = risk_score
-            self.ingested_at = ingested_at
-            self.raw_payload_json = raw_payload_json
-        def SerializeToString(self):
-            return f"{self.correlation_id}:{self.event_type}".encode('utf-8')
-        @classmethod
-        def FromString(cls, b):
-            parts = b.decode('utf-8', errors='ignore').split(':')
-            corr = parts[0] if len(parts) > 0 else ""
-            ev_type = parts[1] if len(parts) > 1 else ""
-            return cls(correlation_id=corr, event_type=ev_type)
-    _globals['QualifiedEvent'] = QualifiedEvent
-    globals()['QualifiedEvent'] = QualifiedEvent
-

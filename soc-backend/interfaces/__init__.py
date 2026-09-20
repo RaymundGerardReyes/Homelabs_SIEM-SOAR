@@ -1,1 +1,1 @@
-# Pytest module registry
+# Interfaces package initialization

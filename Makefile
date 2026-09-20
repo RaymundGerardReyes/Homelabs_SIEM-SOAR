@@ -1,8 +1,8 @@
 # MASTER ORCHESTRATION MAKEFILE FOR HYBRID SIEM/SOAR PLATFORM
 
-.PHONY: all proto-go proto-python build-go run-stack clean certbot-renew
+.PHONY: all proto-go proto-python build-go run-stack clean certbot-renew test-unit-all
 
-all: proto-go proto-python build-go run-stack
+all: proto-go proto-python build-go run-stack test-unit-all
 
 proto-go:
 	@echo "🛠️ Compiling Go Protobuf schemas..."
@@ -45,8 +45,8 @@ run-stack:
 	#    - Failure Mode: Containers crash during boot or schema injection fails.
 	#    - Fallback State: Fails synchronously in the terminal, aborting the `make` execution.
 	# ==============================================================================
-	@echo "🚀 Orchestrating Zero-Trust Docker Container Network..."
-	cd deploy && docker compose up --build -d
+	@echo "🚀 Orchestrating Zero-Trust Docker Container Network with Decrypted Secrets..."
+	cd deploy && dotenvx run -- docker compose up --build -d
 	@echo "⏳ Waiting for containers to initialize..."
 	@sleep 5
 	@echo "⚡ Executing Local Bootstrapper (Simulating PaaS Pre-Deploy)..."
@@ -68,3 +68,16 @@ clean:
 	rm -f core-ingest/soc_ingest_core
 	rm -rf core-ingest/pb/*
 	rm -rf soc-backend/pb/*
+
+test-unit-all:
+	@echo "🧪 Running Root-Level Unit Test Aggregator..."
+	@echo "================================================================"
+	@echo "[1/3] Running Go Core Ingest Unit Tests..."
+	cd core-ingest && go test ./tests/domain ./tests/unit
+	@echo "[2/3] Running Python Backend Unit Tests..."
+	cd soc-backend && pytest tests/domain tests/unit
+	@echo "[3/3] Running React Frontend Unit Tests..."
+	cd soc-frontend && npm run test
+	@echo "================================================================"
+	@echo "✅ All distributed unit tests passed successfully!"
+

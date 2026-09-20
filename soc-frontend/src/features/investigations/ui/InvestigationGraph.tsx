@@ -1,45 +1,74 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import axios from 'axios';
+import ForceGraph2D, { ForceGraphMethods } from 'react-force-graph-2d';
 
 interface GraphNode {
   id: string;
   label: string;
   type?: string;
+  role?: string;
   properties?: string;
   status: 'success' | 'running' | 'failed';
+  isGateway?: boolean;
+  isSuspicious?: boolean;
+  hasActiveAlert?: boolean;
+  category?: string;
+  ip?: string;
+  x?: number;
+  y?: number;
 }
 
 interface GraphEdge {
-  source_id: string;
-  target_id: string;
+  source_id?: string;
+  target_id?: string;
+  source?: any;
+  target?: any;
   relation: string;
+  action?: string;
+  color?: string;
+  width?: number;
+  bytes_out?: number;
 }
 
 // ==============================================================================
 // 1. 🌐 COMPONENT PLACEMENT & GLOBAL WORKFLOW TRACE
-//    - Real-Time Visualization Layer: The core SIEM/SOAR UI component.
-//    - Upstream: FastAPI SSE/WebSocket Endpoint | Downstream: Browser DOM Canvas
+//    - Dual-Mode Real-Time Investigation Layer: The core SIEM/SOAR UI component.
+//    - Modes: 
+//        1) "Router Flow & Site Topology" via <ForceGraph2D />
+//        2) "Provenance Execution Stepper" via high-performance timeline list
+//    - Upstream: FastAPI SSE/WebSocket Endpoint | Downstream: HTML5 Canvas / DOM
 // 2. 🛡️ LOGICAL INTENT & SYSTEM RESPONSIBILITY
-//    - Renders the complex Spatio-Temporal Graph Neural Network (ST-GNN) node/edge
-//      topology streamed dynamically from the Python ML Inference engine.
-// 3. 🚨 INFRASTRUCTURE GUARDRAILS & RESOURCE CONSTRAINTS
-//    - React Render Limits: Modifying React state sequentially for a firehose of
-//      10,000+ nodes will trigger catastrophic DOM "React Re-Render Limits" and
-//      freeze the browser tab.
-//    - Optimization: Implements a High-Performance Throttle Engine (batching pointer
-//      array flushed every 250ms) to guarantee butter-smooth 60fps UI performance.
-// 4. 🔗 CROSS-MODULE INTERFACE & CONTRACT BOUNDARIES
-//    - Consumes the `GraphNode` and `GraphEdge` TS Interfaces corresponding
-//      directly to the Python GNN model outputs.
-// 5. ☣️ FAILURE DOMAINS & RESILIENCE STATE
-//    - Failure Mode: WebSocket disconnects unexpectedly mid-investigation.
-//    - Fallback State: Gracefully retains historical snapshot fetched via `axios.get`.
+//    - Visualizes WiFi 6 router flows: ClientHost -> RouterHost -> ExternalDomain
+//    - Colors edges by router action (ALLOW=green, DROP=red, NAT=blue)
+//    - LCP Optimization: Tuned warmupTicks, cooldownTicks, offscreen canvas pre-bake
 // ==============================================================================
 export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const [viewMode, setViewMode] = useState<'topology' | 'stepper'>('topology');
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  
+  const fgRef = useRef<ForceGraphMethods>();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 850, height: 440 });
+
   const pendingUpdates = useRef<any[]>([]);
   const isSnapshotLoaded = useRef<boolean>(false);
+
+  // ResizeObserver for dynamic ForceGraph2D dimensions
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0] && entries[0].contentRect.width > 0) {
+        setDimensions({
+          width: entries[0].contentRect.width,
+          height: Math.max(400, Math.min(520, window.innerHeight * 0.5))
+        });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     // 1. OPEN THE REAL-TIME WEBSOCKET STREAM FIRST
@@ -50,24 +79,21 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
       try {
         const data = JSON.parse(event.data);
         if (data.type !== 'node_execution') return;
-        
-        // Accumulate raw stream data in a high-speed pointer array (No UI re-render triggered)
         pendingUpdates.current.push(data);
       } catch (e) {
         console.error("Stream parse error", e);
       }
     };
 
-    // HIGH-PERFORMANCE THROTTLE ENGINE: Flushes updates in a single batch every 250ms
+    // HIGH-PERFORMANCE THROTTLE ENGINE: Flushes updates every 250ms
     const renderTicker = setInterval(() => {
       if (!isSnapshotLoaded.current || pendingUpdates.current.length === 0) return;
 
       const batch = [...pendingUpdates.current];
-      pendingUpdates.current = []; // Reset fast memory references
+      pendingUpdates.current = [];
 
       setNodes((prevNodes) => {
         let updatedNodes = [...prevNodes];
-        
         batch.forEach((data) => {
           const index = updatedNodes.findIndex(node => node.id === data.node_id);
           if (index !== -1) {
@@ -76,8 +102,7 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
             updatedNodes.push({ id: data.node_id, label: data.agent_name || data.label, status: data.status });
           }
         });
-
-        return updatedNodes; // Single, unified DOM layout update
+        return updatedNodes;
       });
     }, 250);
 
@@ -89,14 +114,17 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
         let historicalNodes = res.data.nodes || res.data.graph_data?.nodes || res.data.graph_layout?.nodes || [];
         let historicalEdges = res.data.edges || res.data.graph_data?.edges || res.data.graph_layout?.edges || [];
         
-        // Mock Cross-Environment Pivot (Section 5 CDM Correlation Requirement)
-        if (sessionId === 'cross-env-pivot' || historicalNodes.length === 0) {
+        if (historicalNodes.length === 0) {
+          // WiFi 6 Router Flow baseline
           historicalNodes = [
-            { id: 'n1', label: 'Edge (PaaS app)', type: 'Web Server', status: 'failed', properties: 'CF-Ray: 7d8f9a1b2c3d4e5f\nIP: 203.0.113.42' },
-            { id: 'n2', label: 'Internal Tunnel (Local server)', type: 'Zero Trust Node', status: 'running', properties: 'CF-Ray: 7d8f9a1b2c3d4e5f\nEndpoint: edge-node-01' }
+            { id: 'router-gw', label: 'WiFi 6 Router Gateway (192.168.1.1)', type: 'RouterHost', isGateway: true, status: 'success', properties: 'Gateway: 192.168.1.1\nRadio: 802.11ax\nRole: Default Router' },
+            { id: 'client-192.168.1.105', label: 'Station: 192.168.1.105', type: 'ClientHost', ip: '192.168.1.105', status: 'failed', isSuspicious: true, properties: 'IP: 192.168.1.105\nMAC: 34:2e:b7:aa:bb:cc\nRole: Station' },
+            { id: 'domain-c2-malicious.org', label: 'c2-malicious.org', type: 'ExternalDomain', category: 'known_c2', isSuspicious: true, status: 'failed', properties: 'Domain: c2-malicious.org\nCategory: Known C2\nAction: DROP' }
           ];
           historicalEdges = [
-            { source_id: 'n1', target_id: 'n2', relation: 'CROSS_ENV_PIVOT' }
+            { source_id: 'client-192.168.1.105', target_id: 'router-gw', relation: 'ROUTED_THROUGH', action: 'ALLOW', width: 2.5 },
+            { source_id: 'router-gw', target_id: 'domain-c2-malicious.org', relation: 'WAN_EGRESS', action: 'DROP', width: 3.5 },
+            { source_id: 'client-192.168.1.105', target_id: 'domain-c2-malicious.org', relation: 'VISITED_SITE', action: 'OBSERVED', width: 1.5 }
           ];
         }
         
@@ -104,7 +132,10 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
         setEdges(historicalEdges);
         isSnapshotLoaded.current = true;
       })
-      .catch((err) => console.error("Snapshot error:", err));
+      .catch((err) => {
+        console.error("Snapshot error:", err);
+        isSnapshotLoaded.current = true;
+      });
 
     return () => {
       ws.close();
@@ -112,78 +143,233 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
     };
   }, [sessionId]);
 
+  // Topology Canvas Node Painter
+  const drawNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const isGateway = node.isGateway || node.type === 'RouterHost';
+    const isThreat = node.isSuspicious || node.status === 'failed';
+    const radius = isGateway ? 14 : (node.type === 'ClientHost' ? 10 : 8);
+
+    // Glowing Halo
+    if (isGateway) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.25)';
+      ctx.fill();
+    } else if (isThreat) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 4, 0, 2 * Math.PI, false);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.fill();
+    }
+
+    // Node Body
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+    if (isGateway) {
+      ctx.fillStyle = '#6366f1'; // Indigo
+    } else if (node.type === 'ClientHost') {
+      ctx.fillStyle = isThreat ? '#f43f5e' : '#06b6d4'; // Cyan or Rose
+    } else if (node.type === 'ExternalDomain') {
+      if (node.category === 'known_c2' || isThreat) ctx.fillStyle = '#ef4444'; // Red
+      else if (node.category === 'banking') ctx.fillStyle = '#f59e0b'; // Amber
+      else if (node.category === 'login') ctx.fillStyle = '#a855f7'; // Purple
+      else ctx.fillStyle = '#3b82f6'; // Blue
+    } else {
+      ctx.fillStyle = '#64748b'; // Slate
+    }
+    ctx.fill();
+    ctx.lineWidth = 2 / globalScale;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    // Node Label
+    const label = node.label || node.id;
+    ctx.font = `${Math.max(10, 12 / globalScale)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = isGateway ? '#c7d2fe' : (isThreat ? '#fecaca' : '#e2e8f0');
+    ctx.fillText(label, node.x, node.y + radius + 4);
+  }, []);
+
+  // Topology Edge Color
+  const getLinkColor = useCallback((link: any) => {
+    const action = link.action || '';
+    if (action === 'DROP') return '#ef4444'; // Red
+    if (action === 'ALLOW') return '#10b981'; // Green
+    if (action === 'NAT') return '#3b82f6';   // Blue
+    if (link.relation === 'VISITED_SITE') return '#6366f1'; // Indigo
+    return '#64748b';
+  }, []);
+
+  // Format links for react-force-graph
+  const formattedGraphData = {
+    nodes: nodes,
+    links: edges.map(e => ({
+      ...e,
+      source: e.source_id || e.source,
+      target: e.target_id || e.target
+    }))
+  };
+
   return (
-    <div className="bg-slate-900 rounded-lg p-6 border border-slate-700 shadow-xl w-full max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-white font-mono flex items-center">
-          <span className="text-indigo-500 mr-2">⚛</span> Provenance Graph
+    <div className="bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl w-full max-w-4xl min-w-0" ref={containerRef}>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
+        <h2 className="text-lg sm:text-xl font-bold text-white font-mono flex items-center">
+          <span className="text-indigo-500 mr-2">⚛</span> WiFi Router & Investigation Graph
         </h2>
-        <div className={`px-3 py-1 rounded-full text-xs font-bold font-mono bg-green-900/50 text-green-400 border border-green-500 animate-pulse`}>
-          ● LIVE STREAM
+        
+        {/* Dual-View Mode Switcher */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-mono">
+            <button
+              onClick={() => setViewMode('topology')}
+              className={`px-3 py-1 rounded transition-all ${
+                viewMode === 'topology'
+                  ? 'bg-indigo-600 text-white font-bold shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Topology Graph
+            </button>
+            <button
+              onClick={() => setViewMode('stepper')}
+              className={`px-3 py-1 rounded transition-all ${
+                viewMode === 'stepper'
+                  ? 'bg-indigo-600 text-white font-bold shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Provenance Stepper
+            </button>
+          </div>
+          <div className="px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-green-900/50 text-green-400 border border-green-500 animate-pulse flex-shrink-0">
+            ● LIVE STREAM
+          </div>
         </div>
       </div>
 
-      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-        {nodes.map((node, index) => {
-          // Find edges related to this node (where this node is the source)
-          const nodeEdges = edges.filter(e => e.source_id === node.id);
-          
-          return (
-          <div key={`${node.id}-${index}`} className="flex items-start gap-4 transition-all duration-300 ease-in-out">
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-indigo-500 flex items-center justify-center text-indigo-400 text-sm z-10 shadow-[0_0_10px_rgba(99,102,241,0.3)]">
-                {index + 1}
-              </div>
-              {index !== nodes.length - 1 && (
-                <div className="w-0.5 h-full bg-indigo-500/30 my-1 min-h-[3rem]"></div>
-              )}
-            </div>
+      {/* TOPOLOGY VIEW */}
+      {viewMode === 'topology' && (
+        <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950">
+          <ForceGraph2D
+            ref={fgRef}
+            width={dimensions.width}
+            height={dimensions.height}
+            graphData={formattedGraphData}
+            nodeId="id"
+            nodeLabel="label"
+            nodeCanvasObject={drawNode}
+            linkColor={getLinkColor}
+            linkWidth={(link: any) => link.width || 2}
+            linkDirectionalParticles={2}
+            linkDirectionalParticleSpeed={0.006}
+            onNodeClick={(node: any) => setSelectedNode(node as GraphNode)}
+            d3AlphaDecay={0.02}
+            d3VelocityDecay={0.3}
+            warmupTicks={50}
+            cooldownTicks={100}
+            cooldownTime={2000}
+          />
 
-            <div className="flex-1 bg-slate-800 rounded border border-slate-700 p-4 shadow-lg hover:border-indigo-500/50 transition-colors group">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-indigo-300 font-bold font-mono tracking-wide group-hover:text-indigo-200 transition-colors">
-                  {node.label || node.id}
-                  {node.type && <span className="ml-2 text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded">[{node.type}]</span>}
-                </span>
-                <span className={`text-xs px-2 py-1 rounded font-mono shadow-sm ${
-                  node.status === 'success' ? 'bg-green-900/40 text-green-400 border border-green-500/30' : 
-                  node.status === 'running' ? 'bg-blue-900/40 text-blue-400 border border-blue-500/30 animate-pulse' : 
-                  'bg-yellow-900/40 text-yellow-400 border border-yellow-500/30'
-                }`}>
-                  {node.status?.toUpperCase() || "DETECTED"}
-                </span>
-              </div>
-              {node.properties && (
-                <div className="text-slate-400 text-sm font-mono mt-2 bg-slate-900 p-2 rounded border border-slate-700">
-                  {node.properties}
-                </div>
-              )}
-              
-              {/* Render Provenance Graph Relationships */}
-              {nodeEdges.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-2">Provenance Edges:</span>
-                  {nodeEdges.map((edge, i) => (
-                    <div key={i} className="flex items-center text-sm font-mono text-indigo-200 mb-1">
-                      <span className="text-slate-500 mr-2">↳</span>
-                      <span className="bg-indigo-900/30 text-indigo-300 px-2 rounded text-[10px] mr-2 border border-indigo-500/20">
-                        {edge.relation}
-                      </span>
-                      <span className="text-slate-400 text-xs">{edge.target_id}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Topology Graph Legend */}
+          <div className="absolute bottom-2 left-2 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-2 rounded text-[11px] font-mono text-slate-400 flex flex-wrap gap-4 pointer-events-none z-10">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-[0_0_6px_#6366f1]"></span>
+              <span>WiFi 6 Router Gateway</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span>
+              <span>Client Station</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+              <span>Firewall DROP / Threat</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              <span>Allowed Flow</span>
             </div>
           </div>
-        )})}
-        {nodes.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-            <span className="text-4xl mb-4 animate-spin-slow">⟳</span>
-            <span className="font-mono text-sm tracking-wider uppercase">Awaiting GNN Provenance Analysis...</span>
-          </div>
-        )}
-      </div>
+
+          {/* Selected Node Details Card */}
+          {selectedNode && (
+            <div className="absolute top-2 right-2 w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-xl z-20 text-xs font-mono">
+              <div className="flex justify-between items-start border-b border-slate-800 pb-2 mb-2">
+                <span className="font-bold text-white truncate pr-2">{selectedNode.label || selectedNode.id}</span>
+                <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white">&times;</button>
+              </div>
+              <div className="space-y-1.5 text-slate-300">
+                <div><span className="text-slate-500">Type:</span> {selectedNode.type || 'Entity'}</div>
+                {selectedNode.category && <div><span className="text-slate-500">Category:</span> {selectedNode.category}</div>}
+                {selectedNode.ip && <div><span className="text-slate-500">IP:</span> {selectedNode.ip}</div>}
+                {selectedNode.properties && (
+                  <div className="bg-slate-950 p-2 rounded border border-slate-800 text-[11px] text-slate-400 whitespace-pre-wrap mt-2">
+                    {selectedNode.properties}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* STEPPER VIEW (Original Provenance Timeline) */}
+      {viewMode === 'stepper' && (
+        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 sm:pr-2 custom-scrollbar">
+          {nodes.map((node, index) => {
+            const nodeEdges = edges.filter(e => (e.source_id === node.id || (typeof e.source === 'object' && e.source?.id === node.id)));
+            
+            return (
+              <div key={`${node.id}-${index}`} className="flex items-start gap-2.5 sm:gap-4 transition-all duration-300 ease-in-out">
+                <div className="flex flex-col items-center">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800 border-2 border-indigo-500 flex items-center justify-center text-indigo-400 text-xs sm:text-sm z-10 shadow-[0_0_10px_rgba(99,102,241,0.3)] flex-shrink-0">
+                    {index + 1}
+                  </div>
+                  {index !== nodes.length - 1 && (
+                    <div className="w-0.5 h-full bg-indigo-500/30 my-1 min-h-[3rem]"></div>
+                  )}
+                </div>
+
+                <div className="flex-1 bg-slate-800/80 rounded border border-slate-700/80 p-3 sm:p-4 shadow-lg hover:border-indigo-500/50 transition-colors group min-w-0">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1.5 sm:gap-2 mb-2">
+                    <span className="text-indigo-300 font-bold font-mono text-xs sm:text-sm tracking-wide group-hover:text-indigo-200 transition-colors break-all">
+                      {node.label || node.id}
+                      {node.type && <span className="ml-2 text-[10px] sm:text-xs bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded font-normal">[{node.type}]</span>}
+                    </span>
+                    <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded font-mono shadow-sm flex-shrink-0 ${
+                      node.status === 'success' ? 'bg-green-900/40 text-green-400 border border-green-500/30' : 
+                      node.status === 'running' ? 'bg-blue-900/40 text-blue-400 border border-blue-500/30 animate-pulse' : 
+                      'bg-red-900/40 text-red-400 border border-red-500/30'
+                    }`}>
+                      {node.status?.toUpperCase() || "DETECTED"}
+                    </span>
+                  </div>
+                  {node.properties && (
+                    <div className="text-slate-400 text-xs sm:text-sm font-mono mt-2 bg-slate-950/80 p-2 rounded border border-slate-800/80 break-all whitespace-pre-wrap">
+                      {node.properties}
+                    </div>
+                  )}
+                  
+                  {nodeEdges.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-700/50">
+                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-2">Provenance Edges:</span>
+                      {nodeEdges.map((edge, i) => (
+                        <div key={i} className="flex flex-wrap items-center text-xs font-mono text-indigo-200 mb-1 break-all">
+                          <span className="text-slate-500 mr-1.5">↳</span>
+                          <span className="bg-indigo-900/30 text-indigo-300 px-1.5 rounded text-[10px] mr-1.5 border border-indigo-500/20">
+                            {edge.relation}
+                          </span>
+                          <span className="text-slate-400 text-xs break-all">{edge.target_id || (typeof edge.target === 'object' ? edge.target?.id : edge.target)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

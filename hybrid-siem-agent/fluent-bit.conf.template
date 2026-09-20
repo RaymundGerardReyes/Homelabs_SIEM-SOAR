@@ -1,0 +1,59 @@
+[SERVICE]
+    Flush        1
+    Daemon       Off
+    Log_Level    info
+    # Filesystem buffering for resilience
+    storage.path /var/log/fluentbit-buffers/
+    storage.sync normal
+    storage.checksum off
+    storage.backlog.mem_limit 50M
+
+# Tail local application logs (or syslog depending on environment)
+[INPUT]
+    Name         tail
+    Path         /var/log/app/*.log
+    Tag          tenant.${TENANT_ID}.endpoint.${ENDPOINT_ID}
+    storage.type filesystem
+
+# Optionally capture system metrics
+[INPUT]
+    Name         cpu
+    Tag          cpu.tenant.${TENANT_ID}.endpoint.${ENDPOINT_ID}
+
+# Ingest WiFi 6 Router Remote Syslogs over UDP 514
+[INPUT]
+    Name         syslog
+    Mode         udp
+    Listen       0.0.0.0
+    Port         514
+    Parser       syslog-rfc3164
+    Tag          router.tenant.${TENANT_ID}.endpoint.${ENDPOINT_ID}
+
+# Ingest Gateway Bridge DNS Query Logs (CoreDNS/dnsmasq forwarder)
+[INPUT]
+    Name         tail
+    Tag          dns.tenant.${TENANT_ID}.endpoint.${ENDPOINT_ID}
+    Path         /var/log/dns-queries.log
+    storage.type filesystem
+
+[FILTER]
+    Name         record_modifier
+    Match        *
+    Record       endpoint_id ${ENDPOINT_ID}
+    Record       tenant_id ${TENANT_ID}
+    Record       agent_type gateway_bridge
+
+[OUTPUT]
+    Name         http
+    Match        *
+    Host         ${HUB_DOMAIN}
+    Port         443
+    URI          /ingest/
+    Format       json
+    tls          On
+    # In a real environment, CF-Access-Client-Id and CF-Access-Client-Secret
+    # would be passed to authenticate with the Cloudflare Tunnel.
+    Header       X-Tenant-ID ${TENANT_ID}
+    Header       X-Agent-Type gateway_bridge
+    Header       Authorization Bearer ${ENDPOINT_SECRET}
+    Retry_Limit  False

@@ -21,9 +21,11 @@ type GraphNode struct {
 }
 
 type GraphEdge struct {
-	SourceID string `json:"source_id"`
-	TargetID string `json:"target_id"`
-	Relation string `json:"relation"` // e.g., "SPAWNED", "CONNECTED_TO", "READ_FILE"
+	SourceID  string   `json:"source_id"`
+	TargetID  string   `json:"target_id"`
+	Relation  string   `json:"relation"`
+	Certainty string   `json:"certainty"` // OBSERVED, CORRELATED, INFERRED, UNKNOWN
+	EventIDs  []string `json:"event_ids"` // Supporting source events
 }
 
 // ProvenanceGraph forms the exact structure required for Graph Neural Network (GNN) ingestion.

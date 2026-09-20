@@ -145,7 +145,7 @@ export interface DetectionRule {
 }
 
 export type FeedHealth = 'healthy' | 'degraded' | 'down';
-export type FeedType = 'STIX/TAXII' | 'AlienVault OTX' | 'Abuse.ch' | 'MISP' | 'Custom API';
+export type FeedType = string;
 
 export interface ThreatFeed {
   id: string;

@@ -56,17 +56,17 @@ export default function AgentResilienceStatus({ activeProvider, isDegraded, fall
   }
 
   return (
-    <div className={`glass-panel-dark rounded-xl p-4 border shadow-xl flex items-center justify-between ${isDegraded ? 'border-amber-500/50 bg-amber-900/10' : 'border-slate-800'}`}>
-       <div className="flex items-center space-x-4">
+    <div className={`glass-panel-dark rounded-xl p-3.5 sm:p-4 border shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${isDegraded ? 'border-amber-500/50 bg-amber-900/10' : 'border-slate-800'}`}>
+       <div className="flex items-center space-x-3 sm:space-x-4">
           <StatusDot status={isDegraded ? 'warning' : 'success'} />
           <div>
-             <h3 className="text-white font-bold text-sm">Active Provider: <span className="text-blue-400">{activeProvider}</span></h3>
-             <p className="text-slate-400 text-xs mt-1">
+             <h3 className="text-white font-bold text-xs sm:text-sm">Active Provider: <span className="text-blue-400 break-all">{activeProvider}</span></h3>
+             <p className="text-slate-400 text-[11px] sm:text-xs mt-0.5">
                {isDegraded ? 'Primary provider failed. Operating on fallback.' : 'LLM Triage is operating nominally.'}
              </p>
           </div>
        </div>
-       <div className="text-right text-xs text-slate-500 font-mono">
+       <div className="text-left sm:text-right text-[11px] sm:text-xs text-slate-500 font-mono pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60 w-full sm:w-auto flex sm:block justify-between">
           <div>Uptime: {uptime}%</div>
           <div>Fallbacks (24h): {fallbackCount}</div>
        </div>

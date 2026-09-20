@@ -14,12 +14,12 @@ interface EnhancedEndpointHost extends EndpointHost {
 export default function IsolationControlsPage() {
   const { data, loading, error, execute } = useAsyncState<EnhancedEndpointHost[]>(async () => {
     const res = await apiClient.get('/endpoints/isolation-candidates');
-    return res.data.map((h: any, i: number) => ({
+    return res.data.map((h: any) => ({
       ...h,
-      aiRecommended: h.isIsolated === false && Math.random() > 0.8,
-      isolationHistoryCount: Math.floor(Math.random() * 5),
-      services: ['nginx (Production)', 'PostgreSQL (Read Replica)'].slice(0, i % 3 + 1),
-      autoReleaseAt: h.isIsolated && Math.random() > 0.5 ? new Date(Date.now() + 14400000).toISOString() : undefined
+      aiRecommended: h.aiRecommended || false,
+      isolationHistoryCount: h.isolationHistoryCount || 0,
+      services: h.services || ['System Daemon'],
+      autoReleaseAt: h.autoReleaseAt
     }));
   });
 

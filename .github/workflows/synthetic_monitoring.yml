@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Check Frontend Edge Gateway
         run: |
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://ingest.yourdomain.com/health || echo "000")
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://ingest.socanalyst.raymundgerardestaca.dev/health || echo "000")
           if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 401 ]; then
             echo "Edge Gateway is returning $HTTP_STATUS! Alerting required."
             exit 1

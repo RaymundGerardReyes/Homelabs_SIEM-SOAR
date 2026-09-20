@@ -617,3 +617,92 @@ h1, h2, h3 { font-weight: 600; color: var(--text-primary); }
 }
 .confirm-danger-btn:hover:not(:disabled) { background: #dc2626; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5); }
 .confirm-danger-btn:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; box-shadow: none; opacity: 0.7; }
+
+/* ================== RESPONSIVE / MOBILE ================== */
+
+/* Tablet & below: sidebar hidden behind hamburger drawer */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 260px;
+    height: 100dvh;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.6);
+  }
+
+  /* KPI row stacks vertically */
+  .kpi-container {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Investigation grid: single column on mobile */
+  .investigation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Playbook layout stacks */
+  .playbook-layout {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .playbook-sidebar {
+    width: 100%;
+  }
+
+  /* Modal: full width on mobile */
+  .two-key-modal {
+    width: calc(100% - 32px);
+    max-width: 480px;
+  }
+
+  /* Main content body padding */
+  .main-content {
+    padding: 20px 16px;
+  }
+
+  /* Alert list items: wrap content */
+  .alert-list-item {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .severity-indicator {
+    margin-right: 8px;
+  }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+  .login-card {
+    padding: 24px 16px;
+    max-width: 100%;
+  }
+
+  .login-logo h1 {
+    font-size: 1.4rem;
+  }
+
+  .kpi-value {
+    font-size: 1.8rem;
+  }
+
+  .section-title {
+    font-size: 1rem;
+  }
+
+  .alert-type {
+    font-size: 0.95rem;
+  }
+}
+
+/* Large desktops: extend sidebar width slightly */
+@media (min-width: 1440px) {
+  .sidebar {
+    width: 300px;
+  }
+
+  .kpi-value {
+    font-size: 2.6rem;
+  }
+}
+

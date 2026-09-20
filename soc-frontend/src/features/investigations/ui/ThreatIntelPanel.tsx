@@ -53,38 +53,38 @@ export const ThreatIntelPanel: React.FC<{ ipAddress: string }> = ({ ipAddress })
   if (!intelData) return null;
 
   return (
-    <div className="bg-slate-900 border border-red-900/50 rounded-lg p-6 shadow-xl w-full relative overflow-hidden">
+    <div className="bg-slate-900 border border-red-900/50 rounded-xl p-4 sm:p-6 shadow-xl w-full relative overflow-hidden">
       {/* Decorative pulse background for high risk */}
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-orange-500"></div>
       
-      <div className="flex justify-between items-start mb-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white font-mono flex items-center gap-2">
+          <h2 className="text-lg sm:text-xl font-bold text-white font-mono flex items-center gap-2">
             <span className="text-red-500 animate-pulse">⚡</span> SOAR Threat Intel
           </h2>
-          <p className="text-slate-400 text-sm font-mono mt-1">Target Entity: {intelData.source_ip}</p>
+          <p className="text-slate-400 text-xs sm:text-sm font-mono mt-1 break-all">Target Entity: {intelData.source_ip}</p>
         </div>
-        <div className="text-right">
-          <div className="text-3xl font-bold text-red-500 font-mono">{intelData.overall_risk_score}/10</div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">Global Risk Score</div>
+        <div className="text-left sm:text-right">
+          <div className="text-2xl sm:text-3xl font-bold text-red-500 font-mono">{intelData.overall_risk_score}/10</div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">Global Risk Score</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* AlienVault OTX Panel */}
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 shadow-inner">
+        <div className="bg-slate-800 rounded-lg p-3.5 sm:p-4 border border-slate-700 shadow-inner">
           <h3 className="text-indigo-400 text-[10px] font-bold font-mono mb-3 uppercase tracking-wider">AlienVault OTX</h3>
           <div className="flex justify-between mb-2">
-            <span className="text-slate-400 text-sm">Reputation Score</span>
-            <span className="text-white font-bold">{intelData.alienvault_otx.reputation}</span>
+            <span className="text-slate-400 text-xs sm:text-sm">Reputation Score</span>
+            <span className="text-white font-bold text-xs sm:text-sm">{intelData.alienvault_otx.reputation}</span>
           </div>
           <div className="flex justify-between mb-3">
-            <span className="text-slate-400 text-sm">Correlated Pulses</span>
-            <span className="text-red-400 font-bold">{intelData.alienvault_otx.pulse_count}</span>
+            <span className="text-slate-400 text-xs sm:text-sm">Correlated Pulses</span>
+            <span className="text-red-400 font-bold text-xs sm:text-sm">{intelData.alienvault_otx.pulse_count}</span>
           </div>
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3">
             {intelData.alienvault_otx.tags.map(tag => (
-              <span key={tag} className="bg-slate-900 text-xs text-slate-300 px-2 py-1 rounded border border-slate-700 shadow-sm font-mono">
+              <span key={tag} className="bg-slate-900 text-[11px] sm:text-xs text-slate-300 px-2 py-0.5 sm:py-1 rounded border border-slate-700 shadow-sm font-mono break-all">
                 #{tag}
               </span>
             ))}
@@ -92,25 +92,25 @@ export const ThreatIntelPanel: React.FC<{ ipAddress: string }> = ({ ipAddress })
         </div>
 
         {/* Abuse.ch & MISP Panel */}
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 shadow-inner">
+        <div className="bg-slate-800 rounded-lg p-3.5 sm:p-4 border border-slate-700 shadow-inner">
           <h3 className="text-indigo-400 text-[10px] font-bold font-mono mb-3 uppercase tracking-wider">Internal & Open Feeds</h3>
-          <div className="flex justify-between items-center p-2 bg-slate-900 rounded mb-2 border border-slate-700/50">
+          <div className="flex justify-between items-center p-2 bg-slate-900 rounded mb-2 border border-slate-700/50 gap-2">
             <span className="text-slate-300 text-xs font-mono">Abuse.ch Status</span>
             {intelData.abuse_ch.listed ? (
-              <span className="bg-red-900/30 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold border border-red-500/30 shadow-[0_0_5px_rgba(239,68,68,0.2)]">BLACKLISTED</span>
+              <span className="bg-red-900/30 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold border border-red-500/30 shadow-[0_0_5px_rgba(239,68,68,0.2)] flex-shrink-0">BLACKLISTED</span>
             ) : (
-              <span className="text-green-500 text-[10px] font-bold">CLEAN</span>
+              <span className="text-green-500 text-[10px] font-bold flex-shrink-0">CLEAN</span>
             )}
           </div>
           {intelData.abuse_ch.malware_family && (
-            <div className="flex justify-between items-center p-2 bg-slate-900 rounded mb-2 border border-slate-700/50">
+            <div className="flex justify-between items-center p-2 bg-slate-900 rounded mb-2 border border-slate-700/50 gap-2">
               <span className="text-slate-300 text-xs font-mono">Malware Signature</span>
-              <span className="text-orange-400 text-xs font-bold">{intelData.abuse_ch.malware_family}</span>
+              <span className="text-orange-400 text-xs font-bold truncate">{intelData.abuse_ch.malware_family}</span>
             </div>
           )}
-          <div className="flex justify-between items-center p-2 bg-slate-900 rounded border border-slate-700/50">
+          <div className="flex justify-between items-center p-2 bg-slate-900 rounded border border-slate-700/50 gap-2">
             <span className="text-slate-300 text-xs font-mono">Local MISP Instance</span>
-            <span className={intelData.misp_correlation ? "text-red-400 text-[10px] font-bold tracking-wider" : "text-green-500 text-[10px] font-bold tracking-wider"}>
+            <span className={intelData.misp_correlation ? "text-red-400 text-[10px] font-bold tracking-wider flex-shrink-0" : "text-green-500 text-[10px] font-bold tracking-wider flex-shrink-0"}>
               {intelData.misp_correlation ? "KNOWN THREAT" : "NO MATCH"}
             </span>
           </div>

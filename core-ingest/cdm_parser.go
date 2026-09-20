@@ -8,22 +8,27 @@ import (
 
 // ==============================================================================
 // 1. WORKFLOW PATHWAY & LIFECYCLE PINPOINT
-//    - Mid-Pipeline Transformation: Executed after initial ingestion, prior to
-//      dispatching the payload to the Python ML Inference Engine.
-//    - Upstream: Stream Correlation Engine | Downstream: GNN Inference Service
+//   - Mid-Pipeline Transformation: Executed after initial ingestion, prior to
+//     dispatching the payload to the Python ML Inference Engine.
+//   - Upstream: Stream Correlation Engine | Downstream: GNN Inference Service
+//
 // 2. LOGICAL INTENT & SYSTEM RESPONSIBILITY
-//    - Converts unstructured flat JSON security telemetry into mathematically
-//      structured graph topologies (Nodes and Edges).
+//   - Converts unstructured flat JSON security telemetry into mathematically
+//     structured graph topologies (Nodes and Edges).
+//
 // 3. HARD ARCHITECTURAL CONSTRAINTS & THREAD SAFETY WARNINGS
-//    - 100% Stateless. Safe for high-concurrency Fan-Out worker pools.
-//    - Warning: Relies on map[string]interface{} unmarshaling which induces
-//      heavy heap allocations and GC pressure.
+//   - 100% Stateless. Safe for high-concurrency Fan-Out worker pools.
+//   - Warning: Relies on map[string]interface{} unmarshaling which induces
+//     heavy heap allocations and GC pressure.
+//
 // 4. PROTOCOL & SCHEMA BOUNDARIES
-//    - Consumes arbitrary JSON. Outputs internal ProvenanceGraph structure.
+//   - Consumes arbitrary JSON. Outputs internal ProvenanceGraph structure.
+//
 // 5. FAILURE DOMAIN & RESILIENCE RUNBOOK
-//    - Failure Mode: Missing fields silently skip edge creation, leading to
-//      disconnected "Ghost Graphs" that may pollute downstream ML training.
-//    - Resilience Posture: Fail-Open. Returns partial graphs without panicking.
+//   - Failure Mode: Missing fields silently skip edge creation, leading to
+//     disconnected "Ghost Graphs" that may pollute downstream ML training.
+//   - Resilience Posture: Fail-Open. Returns partial graphs without panicking.
+//
 // ==============================================================================
 // ParseToCDM transforms unstructured flat JSON security telemetry into mathematically
 // structured graph topologies (Nodes and Edges), fully scoped to a Tenant ID.
@@ -82,8 +87,8 @@ func ParseToCDM(payload *RemoteLogPayload, tenantID string) (*ProvenanceGraph, e
 				Relation: "MODIFIED_FILE",
 			})
 		}
-		
-		// 4. Map Network Connections
+
+		// 4. Map Network Connections (Host Process -> Network)
 		if targetIP := payload.RawData.DestinationIP; targetIP != "" {
 			destNode := GraphNode{
 				ID:         fmt.Sprintf("%s_%s", tenantID, targetIP),
@@ -94,9 +99,156 @@ func ParseToCDM(payload *RemoteLogPayload, tenantID string) (*ProvenanceGraph, e
 
 			// Edge: Process -> CONNECTED_TO -> Network Node
 			graph.Edges = append(graph.Edges, GraphEdge{
-				SourceID: procID,
-				TargetID: destNode.ID,
-				Relation: "CONNECTED_TO",
+				SourceID:  procID,
+				TargetID:  destNode.ID,
+				Relation:  "CONNECTED_TO",
+				Certainty: "OBSERVED",
+			})
+
+			// Map Network Flow if Ports are present
+			if payload.RawData.DestinationPort != 0 {
+				flowNode := GraphNode{
+					ID:         fmt.Sprintf("%s_flow_%s_%d", tenantID, targetIP, payload.RawData.DestinationPort),
+					Type:       "NetworkFlow",
+					Properties: fmt.Sprintf("Tenant=%s, Protocol=%s, Port=%d", tenantID, payload.RawData.Protocol, payload.RawData.DestinationPort),
+				}
+				graph.Nodes = append(graph.Nodes, flowNode)
+
+				graph.Edges = append(graph.Edges, GraphEdge{
+					SourceID:  destNode.ID,
+					TargetID:  flowNode.ID,
+					Relation:  "NETWORK_FLOW",
+					Certainty: "OBSERVED",
+				})
+			}
+		}
+
+		// 5. Map DNS Queries
+		if dnsDomain := payload.RawData.DNSDomain; dnsDomain != "" {
+			dnsNode := GraphNode{
+				ID:         fmt.Sprintf("%s_dns_%s", tenantID, dnsDomain),
+				Type:       "DNS",
+				Properties: fmt.Sprintf("Tenant=%s, Domain=%s", tenantID, dnsDomain),
+			}
+			graph.Nodes = append(graph.Nodes, dnsNode)
+
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  procID,
+				TargetID:  dnsNode.ID,
+				Relation:  "RESOLVED_DNS",
+				Certainty: "OBSERVED",
+			})
+		}
+	}
+
+	// 4b. Router-Centric Network Flow & Site-Visit Graph Mapping (Client -> Router -> External)
+	targetIP := payload.RawData.DestinationIP
+	dnsDomain := payload.RawData.DNSDomain
+	if dnsDomain == "" {
+		dnsDomain = payload.RawData.DstHostname
+	}
+
+	isRouterFlow := payload.EndpointType == "gateway_bridge" ||
+		payload.RawData.RouterAction != "" ||
+		payload.RawData.RouterInterface != "" ||
+		(payload.RawData.ProcessName == "" && (targetIP != "" || dnsDomain != ""))
+
+	if isRouterFlow {
+		routerIP := "192.168.1.1"
+		routerID := fmt.Sprintf("%s_router_%s", tenantID, routerIP)
+		routerNode := GraphNode{
+			ID:         routerID,
+			Type:       "RouterHost",
+			Properties: fmt.Sprintf("Tenant=%s, Role=Gateway, IP=%s", tenantID, routerIP),
+		}
+		graph.Nodes = append(graph.Nodes, routerNode)
+
+		// Edge: Client Host -> ROUTED_THROUGH -> RouterHost
+		graph.Edges = append(graph.Edges, GraphEdge{
+			SourceID:  hostNode.ID,
+			TargetID:  routerID,
+			Relation:  "ROUTED_THROUGH",
+			Certainty: "OBSERVED",
+		})
+
+		// Router Interface Node
+		if iface := payload.RawData.RouterInterface; iface != "" {
+			ifaceID := fmt.Sprintf("%s_iface_%s", tenantID, iface)
+			ifaceNode := GraphNode{
+				ID:         ifaceID,
+				Type:       "RouterInterface",
+				Properties: fmt.Sprintf("Tenant=%s, Interface=%s, Action=%s", tenantID, iface, payload.RawData.RouterAction),
+			}
+			graph.Nodes = append(graph.Nodes, ifaceNode)
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  routerID,
+				TargetID:  ifaceID,
+				Relation:  "EGRESS_INTERFACE",
+				Certainty: "OBSERVED",
+			})
+		}
+
+		// WAN Destination Node
+		if targetIP != "" {
+			destNodeID := fmt.Sprintf("%s_%s", tenantID, targetIP)
+			destNode := GraphNode{
+				ID:         destNodeID,
+				Type:       "Network",
+				Properties: fmt.Sprintf("Tenant=%s, RemoteIP=%s, Action=%s", tenantID, targetIP, payload.RawData.RouterAction),
+			}
+			graph.Nodes = append(graph.Nodes, destNode)
+
+			// Edge: RouterHost -> OUTBOUND_ACCESS -> Network Node
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  routerID,
+				TargetID:  destNodeID,
+				Relation:  "OUTBOUND_ACCESS",
+				Certainty: "OBSERVED",
+			})
+
+			// Flow node with ports/bytes
+			if payload.RawData.DestinationPort != 0 {
+				flowNodeID := fmt.Sprintf("%s_flow_%s_%d", tenantID, targetIP, payload.RawData.DestinationPort)
+				flowNode := GraphNode{
+					ID:         flowNodeID,
+					Type:       "NetworkFlow",
+					Properties: fmt.Sprintf("Tenant=%s, Protocol=%s, Port=%d, Action=%s, BytesOut=%d", tenantID, payload.RawData.Protocol, payload.RawData.DestinationPort, payload.RawData.RouterAction, payload.RawData.BytesOut),
+				}
+				graph.Nodes = append(graph.Nodes, flowNode)
+
+				graph.Edges = append(graph.Edges, GraphEdge{
+					SourceID:  destNodeID,
+					TargetID:  flowNodeID,
+					Relation:  "NETWORK_FLOW",
+					Certainty: "OBSERVED",
+				})
+			}
+		}
+
+		// DNS Domain Node (Site-visit)
+		if dnsDomain != "" {
+			dnsNodeID := fmt.Sprintf("%s_dns_%s", tenantID, dnsDomain)
+			dnsNode := GraphNode{
+				ID:         dnsNodeID,
+				Type:       "ExternalDomain",
+				Properties: fmt.Sprintf("Tenant=%s, Domain=%s", tenantID, dnsDomain),
+			}
+			graph.Nodes = append(graph.Nodes, dnsNode)
+
+			// Edge: RouterHost -> RESOLVED_DOMAIN -> ExternalDomain
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  routerID,
+				TargetID:  dnsNodeID,
+				Relation:  "RESOLVED_DOMAIN",
+				Certainty: "OBSERVED",
+			})
+
+			// Edge: ClientHost -> VISITED_SITE -> ExternalDomain
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  hostNode.ID,
+				TargetID:  dnsNodeID,
+				Relation:  "VISITED_SITE",
+				Certainty: "OBSERVED",
 			})
 		}
 	}
@@ -109,7 +261,7 @@ func ParseToCDM(payload *RemoteLogPayload, tenantID string) (*ProvenanceGraph, e
 			Properties: fmt.Sprintf("Tenant=%s, Command=%s", tenantID, scriptArgs),
 		}
 		graph.Nodes = append(graph.Nodes, scriptNode)
-		
+
 		graph.Edges = append(graph.Edges, GraphEdge{
 			SourceID: hostNode.ID,
 			TargetID: scriptNode.ID,
@@ -152,7 +304,7 @@ func ParseSupabaseToCDM(payload *SupabaseWebhookPayload, tenantID string) (*Prov
 	}
 
 	nodeID := fmt.Sprintf("%s_%s_%s", tenantID, payload.Table, payload.Record.ID)
-	
+
 	// 1. Create central vertex (Node) for the mutated database row, bound to Tenant
 	rowNode := GraphNode{
 		ID:         nodeID,
@@ -181,4 +333,27 @@ func ParseSupabaseToCDM(payload *SupabaseWebhookPayload, tenantID string) (*Prov
 	}
 
 	return graph, nil
+}
+
+// EnrichGraphWithAnomalies takes deterministic network signals and attaches them to the ProvenanceGraph.
+func EnrichGraphWithAnomalies(graph *ProvenanceGraph, signals []NetworkAnomalySignal, tenantID string) {
+	for _, sig := range signals {
+		// 1. Create the Anomaly Node
+		anomalyNode := GraphNode{
+			ID:         fmt.Sprintf("%s_anomaly_%s", tenantID, sig.SignalID),
+			Type:       "Anomaly",
+			Properties: fmt.Sprintf("Type=%s, Severity=%s, Desc=%s", sig.SignalType, sig.Severity, sig.Description),
+		}
+		graph.Nodes = append(graph.Nodes, anomalyNode)
+
+		// 2. Create Edges linking back to the raw Evidence IDs
+		for _, evID := range sig.EvidenceIDs {
+			graph.Edges = append(graph.Edges, GraphEdge{
+				SourceID:  anomalyNode.ID,
+				TargetID:  fmt.Sprintf("%s_flow_%s", tenantID, evID), // Assuming the flow was added as a node
+				Relation:  "BASED_ON_EVIDENCE",
+				Certainty: "DETERMINISTIC",
+			})
+		}
+	}
 }

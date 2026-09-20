@@ -73,3 +73,55 @@ graph LR
     C -->|LangGraph Node Transitions| D[Ring Buffer & Pub/Sub]
     D -->|ws/agent/stream| E[CommandCenter.tsx: React]
 ```
+
+---
+
+## Testing Strategy
+
+To ensure high reliability across our polyglot architecture (Go, Python, React), we strictly adhere to a **Domain-Driven Testing Taxonomy**.
+
+1. **Domain Tests (`tests/domain`)**: Validate pure business logic (e.g., Policy Engine, Playbook Registry) with zero I/O or database mocking.
+2. **Service Tests (`tests/service`)**: Validate API Routers and gRPC boundaries in isolation using test clients.
+3. **Integration Tests (`tests/integration`)**: Validate cross-boundary flows (Nginx → FastAPI → Postgres).
+4. **End-to-End Tests (`tests/e2e`)**: Validate analyst UI workflows using Playwright.
+
+For complete developer guidelines, including the required *New Feature Checklist* and strict Object-Oriented mapping instructions, refer to the **[Developer Testing Guide](tests/DEVELOPER_TESTING_GUIDE.md)** and the **[Test Catalog](tests/TEST-CATALOG.md)**.
+
+---
+
+## v0.7.0 Multi-System Network Monitoring & Threat Defense Fabric
+
+As of release **v0.7.0**, the platform extends beyond host endpoints to cover the entire local network fabric, including physical Wi-Fi 6 gateway routers, container clusters, and LAN client devices.
+
+```mermaid
+graph TD
+    Router["Physical Wi-Fi 6 Router (192.168.1.1)"] -->|"Syslog (DROP / DHCP / Assoc)"| Bridge["Gateway Bridge (192.168.1.50)"]
+    Bridge -->|"/api/v1/agent/push (Batch Ingest)"| Ingest["core-ingest (Go)"]
+    Ingest -->|"Normalized Flows & Metrics"| CH[("ClickHouse: soc.network_flows / dns_events")]
+    Ingest -->|"gRPC QualifiedEvent Stream"| Backend["soc-backend (Python / FastAPI)"]
+    
+    Backend --> Coordinator["AntigravityTriageCoordinator"]
+    Coordinator --> RAT["RatDetector (5 Signals)"]
+    Coordinator --> Exfil["ExfilDetector (Rolling Bytes)"]
+    Coordinator --> DDoS["DDoSDetector (PPS / Z-Score)"]
+    
+    RAT --> Gov["PolicyGovernanceSubagent (4 Safety Invariants)"]
+    Exfil --> Gov
+    DDoS --> Gov
+    
+    Gov --> DB[("PostgreSQL: security_findings (RLS)")]
+    Gov --> Stream["WebSocket Feed (/ws/agent/stream)"]
+    Stream --> UI["soc-frontend (NetworkMapPage: ForceGraph2D)"]
+```
+
+### Key Architectural Invariants (v0.7.0)
+
+1. **Safety Governance**:
+   - The default gateway (`192.168.1.1`) and gateway bridge (`192.168.1.50`) can **never** be targeted for isolation or containment.
+   - Router firmware, configuration, and upstream DNS modification actions are strictly blocklisted.
+   - Network containment (`isolate_lan_client`) is permitted exclusively at Layer-2 via ARP quarantine on client IPs.
+
+2. **Decrypted Secret Orchestration**:
+   - Production secrets stored via `dotenvx` public-key encryption on disk (`deploy/.env`) are automatically injected in plaintext during local startup via `deploy/up.ps1` (PowerShell), `deploy/up.bat` (CMD), and `deploy/up.sh` (Bash).
+   - Container-to-service aliases (e.g., `soc-postgres-state` → `postgres`) and host pipe guards (`env -u DOCKER_HOST`) ensure seamless development parity.
+

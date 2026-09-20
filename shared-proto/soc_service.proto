@@ -36,6 +36,16 @@ message SecurityEventDetail {
     string principal_user = 4;
     string action_executed = 5;
     uint32 risk_score = 6;
+    string destination_ip = 7;
+    int32 destination_port = 8;
+    string protocol = 9;
+    string dns_domain = 10;
+    string flow_id = 11;
+    uint64 bytes_out = 12;
+    uint64 bytes_in = 13;
+    uint32 packets_out = 14;
+    uint32 packets_in = 15;
+    double flow_duration = 16;
 }
 
 message LogContextResponse {
@@ -86,5 +96,6 @@ message QualifiedEvent {
     uint32 risk_score = 6;                     // Pre-computed edge risk score (0-100)
     google.protobuf.Timestamp ingested_at = 7; // Timestamp the event was accepted at the Go edge
     string raw_payload_json = 8;               // Serialized CDM graph for advanced ML inference
+    string provenance_graph = 9;
 }
 

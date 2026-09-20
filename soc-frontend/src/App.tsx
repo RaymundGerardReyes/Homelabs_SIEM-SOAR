@@ -5,7 +5,7 @@ import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom
 import ProtectedRoute from './features/auth/ui/ProtectedRoute';
 import Login from './features/auth/ui/Login';
 import UnauthorizedPage from './features/auth/ui/UnauthorizedPage';
-import Sidebar from './layouts/ui/Sidebar';
+import MainLayout from './layouts/MainLayout';
 import { LoadingSkeleton } from './shared/ui';
 
 // Domains
@@ -43,12 +43,15 @@ const SettingsPage = React.lazy(() => import('./pages/utilities/SettingsPage'));
 const ProfilePage = React.lazy(() => import('./pages/utilities/ProfilePage'));
 const NotFoundPage = React.lazy(() => import('./pages/utilities/NotFoundPage'));
 
-// Main Application Layout Shell
-function MainLayout() {
+// Public (Lazy)
+const DocumentationPage = React.lazy(() => import('./pages/documentation/DocumentationPage'));
+
+
+
+function PublicLayout() {
   return (
-    <div className="flex w-full h-screen overflow-hidden bg-slate-950 text-slate-300">
-      <Sidebar />
-      <div className="flex-1 overflow-auto relative">
+    <div className="flex flex-col w-full h-screen overflow-y-auto bg-slate-950 text-slate-300">
+      <div className="flex-1 w-full relative">
         <Suspense fallback={<div className="p-8 pt-24"><LoadingSkeleton lines={10} /></div>}>
           <Outlet />
         </Suspense>
@@ -63,6 +66,11 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+        {/* Global Public Layout */}
+        <Route element={<PublicLayout />}>
+          <Route path="/documentation" element={<DocumentationPage />} />
+        </Route>
 
         {/* Global Protected Layout */}
         <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
