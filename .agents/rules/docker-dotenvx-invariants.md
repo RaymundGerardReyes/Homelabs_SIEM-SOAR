@@ -1,19 +1,43 @@
-# Docker & Dotenvx Runtime Invariants
+# Docker, Dotenvx & Secrets Management Invariants
 
-## 1. Always Use `dotenvx run` for Docker Operations
-- Never run raw `docker compose up` when `.env` contains `encrypted:...` secrets.
-- Always execute with `dotenvx run -- docker compose up -d` or `dotenvx run -f <file> -- docker compose ...` so container healthchecks and application runtimes receive plaintext secrets.
+1. **Always Use `dotenvx run` for Docker Operations**:
+   - Never run raw `docker compose up` when `.env` contains `encrypted:...` secrets.
+   - Use `dotenvx run -- docker compose up -d` (or `cmd /c "dotenvx run -- docker compose ..."` on Windows).
 
-## 2. Never Export `DOCKER_HOST` in Root `.env`
-- Keep `DOCKER_HOST` commented out in local `.env` and `.env.dev` files to prevent overriding the host Docker Desktop named pipe connection (`//./pipe/docker_engine`).
+2. **Never Export `DOCKER_HOST` in Root `.env`**:
+   - Keep `DOCKER_HOST` commented out in local `.env` files to prevent overriding the host Docker Desktop named pipe.
 
-## 3. Explicit Environment Mappings & Healthcheck Escaping in `docker-compose.yml`
-- Always map sensitive variables explicitly in `environment:` blocks (e.g., `POSTGRES_USER: ${DB_USER}`, `CLICKHOUSE_USER: ${CLICKHOUSE_USER}`) rather than relying on raw `env_file: .env` passing, ensuring Docker Compose substitutes the runtime decrypted values into containers.
-## 4. Windows PowerShell CLI Argument Passing
-- PowerShell interprets `--` differently than Unix shells. When passing flags to `docker compose` through `dotenvx run` on Windows, wrap the command in `cmd /c "dotenvx run -- docker compose ..."` or use Git Bash to prevent PowerShell from consuming the separator.
+3. **Explicit Environment Mappings in `docker-compose.yml`**:
+   - Always map sensitive variables explicitly in `environment:` blocks (e.g., `POSTGRES_USER: ${DB_USER}`) so Docker Compose substitutes the decrypted values from the host shell.
 
-## 5. Force Recreate Containers After Secret Decryption Fixes
-- Services like ClickHouse generate XML configuration files (`/etc/clickhouse-server/users.d/default-user.xml`) on first boot based on container environment variables. If initial creation occurred with encrypted tokens (e.g. `encrypted:...`), the invalid XML syntax persists inside the container layer and causes `SAXParseException` loops upon restart.
-- Always use `--force-recreate` when transitioning an existing stack to decrypted secrets so fresh container layers are initialized with valid syntax.
+4. **Force Recreate Containers After Secret Decryption Changes**:
+   - Always pass `--force-recreate` when switching from encrypted tokens to decrypted secrets to eliminate stale XML/role configurations generated during initial boots.
 
+5. **Strict No-Hardcoded-Secrets Invariant**:
+   - Production source code must NEVER contain default fallback literals for secrets, API keys, or OAuth client IDs (e.g., `your-google-client-id`, `mock-client-id`, `dev-internal-key-...`).
+   - If an environment variable is required and missing, the service must fail fast with a descriptive configuration error.
+   - Mock credentials belong solely in unit test fixtures (`conftest.py` / `monkeypatch`).
 
+6. **Egress Network Placement & IPv4 Enforcement**:
+   - In `docker-compose.yml`, always list the network with the internet gateway first under `networks:` for any service that makes external API calls (e.g., Google OAuth).
+   - In Python services, enforce IPv4 resolution to prevent Docker bridge IPv6 connection aborts (`RemoteDisconnected`).
+
+7. **Responsive Dashboard Grid & Fluid Canvas Sizing**:
+   - For multi-column dashboards with persistent sidebars, use `xl:grid-cols-2` rather than `lg:grid-cols-2` to prevent cramped columns on standard 1080p laptop displays.
+   - All child containers in CSS grids must include `min-w-0` to prevent word/content overflow from expanding tracks.
+   - Dynamic canvas elements must adapt to container widths via `ResizeObserver` without static initial width overshoots.
+   - Floating overlays and widgets must be placed outside grid tracks at the root level.
+
+8. **Host Ingress Routing & Port Collision Avoidance**:
+   - Internal mesh services (`core-ingest:8080`, `soc-backend:8000`) are not exposed directly to the host.
+   - Always target the unified Nginx edge proxy at `http://localhost:81` for all external agents, CLI curls, and browser traffic.
+   - Never use host port 8080 directly without verifying native host process occupancy (`httpd.exe`).
+
+9. **ClickHouse Type Conformance & Deterministic UUIDs**:
+   - When streaming to ClickHouse tables requiring `UUID` columns (e.g. `tenant_id`), parse strings with `uuid.Parse` or generate deterministic UUIDs via `uuid.NewMD5(uuid.NameSpaceDNS, []byte(tenantID))`.
+
+10. **Dynamic Host Network Discovery**:
+    - Agent sidecars must dynamically discover host IP, default gateway, and ARP cache stations rather than hardcoding subnets.
+
+11. **Release & Branch Synchronization**:
+    - When promoting release milestones (`v0.8.0`), ensure `Development` is fully verified with 100% test coverage before updating `main` and pushing tags.
