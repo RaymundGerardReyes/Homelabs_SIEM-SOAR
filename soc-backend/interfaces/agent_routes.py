@@ -2,7 +2,7 @@ import os
 import uuid
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, Depends, HTTPException, Header, status, Request
 from pydantic import BaseModel
 import asyncpg
@@ -35,10 +35,15 @@ class RegisterRequest(BaseModel):
     label: str
     type: str
     cf_tunnel_url: Optional[str] = None
-    capabilities: List[str]
+    capabilities: Union[List[Any], Dict[str, Any]]
     agent_version: str
     os: str
     region: str
+    ip_address: Optional[str] = None
+    ip: Optional[str] = None
+    gateway: Optional[str] = None
+    subnet: Optional[str] = None
+    devices: Optional[List[Dict[str, Any]]] = None
 
 class RegisterResponse(BaseModel):
     endpoint_id: str
@@ -178,7 +183,7 @@ async def enroll_endpoint(req: EnrollmentRequest, db: asyncpg.Connection = Depen
         logger.info(f"Auto-provisioning tenant '{tenant_id}' in tenant_registry during enrollment.")
         webhook_secret = secrets.token_hex(32)
         clickhouse_db = f"soc_{tenant_id.replace('-', '_')}"
-        default_llm_key = os.environ.get("OPENAI_API_KEY", "sk-global-infrastructure-key-override")
+        default_llm_key = os.environ.get("OPENAI_API_KEY", "")
         await db.execute("""
             INSERT INTO tenant_registry (tenant_id, webhook_secret, clickhouse_db, llm_key)
             VALUES ($1, $2, $3, $4)
@@ -228,14 +233,16 @@ async def register_endpoint(
     """
     import json
     
-    # 1. Precise IP Extraction (Cloudflare -> Nginx -> Uvicorn Proxy Chain)
-    # Check CF-Connecting-IP first for Cloudflare, then X-Real-IP for Nginx, then X-Forwarded-For.
+    # 1. Precise IP Extraction (Agent Reporting -> Cloudflare -> Nginx -> Uvicorn Proxy Chain)
+    agent_ip = req.ip_address or req.ip
     real_ip = "Unknown"
     cf_ip = request.headers.get("CF-Connecting-IP")
     real_ip_header = request.headers.get("X-Real-IP")
     fwd_ip = request.headers.get("X-Forwarded-For")
     
-    if cf_ip:
+    if agent_ip and agent_ip not in ("127.0.0.1", "::1", "localhost", "Unknown"):
+        real_ip = agent_ip
+    elif cf_ip:
         real_ip = cf_ip.strip()
     elif real_ip_header:
         real_ip = real_ip_header.strip()
@@ -245,9 +252,23 @@ async def register_endpoint(
         real_ip = request.client.host
         
     # Ensure it defaults gracefully if running behind a misconfigured proxy
-    if real_ip in ("127.0.0.1", "::1", "localhost"):
-        real_ip = "Local Network (Air-gapped)"
+    if real_ip in ("127.0.0.1", "::1", "localhost", "Unknown"):
+        real_ip = agent_ip or "10.0.0.33"
     
+    # Enrich capabilities with network metadata
+    caps_data: dict = {}
+    if isinstance(req.capabilities, dict):
+        caps_data = dict(req.capabilities)
+    elif isinstance(req.capabilities, list):
+        caps_data = {"features": req.capabilities}
+    caps_data["ip"] = real_ip
+    if req.gateway:
+        caps_data["gateway"] = req.gateway
+    if req.subnet:
+        caps_data["subnet"] = req.subnet
+    if req.devices:
+        caps_data["devices"] = req.devices
+
     update_query = """
         UPDATE endpoint_inventory 
         SET hostname = $1, label = $2, type = $3, cf_tunnel_url = $4, 
@@ -261,7 +282,7 @@ async def register_endpoint(
         await db.execute(
             update_query,
             req.hostname, req.label, req.type, req.cf_tunnel_url,
-            json.dumps(req.capabilities), req.agent_version, req.os, req.region,
+            json.dumps(caps_data), req.agent_version, req.os, req.region,
             real_ip,
             endpoint['endpoint_id']
         )
@@ -324,7 +345,7 @@ async def create_enrollment_token(req: AdminEnrollmentTokenRequest, db: asyncpg.
         logger.info(f"Auto-provisioning tenant '{req.tenant_id}' in tenant_registry for enrollment.")
         webhook_secret = secrets.token_hex(32)
         clickhouse_db = f"soc_{req.tenant_id.replace('-', '_')}"
-        default_llm_key = os.environ.get("OPENAI_API_KEY", "sk-global-infrastructure-key-override")
+        default_llm_key = os.environ.get("OPENAI_API_KEY", "")
         
         await db.execute("""
             INSERT INTO tenant_registry (tenant_id, webhook_secret, clickhouse_db, llm_key)
@@ -571,10 +592,10 @@ async def rotate_endpoint_credential(endpoint_id: str, db: asyncpg.Connection = 
 # ==============================================================================
 
 class LogEvent(BaseModel):
-    timestamp: str
-    source: str
+    timestamp: Optional[str] = None
+    source: Optional[str] = "agent-host"
     severity: str = "INFO"
-    message: str
+    message: str = "Agent telemetry event"
     metadata: Optional[Dict[str, Any]] = None
 
 class PushLogsRequest(BaseModel):
@@ -582,14 +603,18 @@ class PushLogsRequest(BaseModel):
 
 @router.post("/v1/agent/push")
 async def push_agent_logs(
-    req: PushLogsRequest,
-    request: object = None,
+    raw_req: Union[PushLogsRequest, List[LogEvent], LogEvent, Dict[str, Any]],
+    request: Request = None,
     endpoint: dict = Depends(verify_endpoint_secret),
     db: asyncpg.Connection = Depends(get_db)
 ):
     """
     Primary telemetry intake for all integrated systems.
     External SDKs are zero-processing conduits — they send raw events here.
+    Supports:
+      - Batched requests: {"events": [LogEvent, ...]}
+      - Direct list: [LogEvent, ...]
+      - Single event: LogEvent or raw event dictionary (e.g., router heartbeat summary)
     This route:
       1. Validates endpoint identity (status=active, tenant cross-check).
       2. Enforces batch size limits.
@@ -606,18 +631,39 @@ async def push_agent_logs(
     endpoint_id = str(endpoint['endpoint_id'])
     tenant_id   = endpoint['tenant_id']
 
-    if not req.events:
+    events: List[LogEvent] = []
+    if isinstance(raw_req, PushLogsRequest):
+        events = raw_req.events
+    elif isinstance(raw_req, list):
+        events = raw_req
+    elif isinstance(raw_req, LogEvent):
+        events = [raw_req]
+    elif isinstance(raw_req, dict):
+        if "events" in raw_req and isinstance(raw_req["events"], list):
+            for item in raw_req["events"]:
+                if isinstance(item, dict):
+                    events.append(LogEvent(**item))
+                elif isinstance(item, LogEvent):
+                    events.append(item)
+        else:
+            # Single flat dictionary payload (e.g. router heartbeat summary)
+            ts = raw_req.get("timestamp") or datetime.now(timezone.utc).isoformat()
+            src = raw_req.get("client_id") or raw_req.get("source") or "agent-host"
+            msg = raw_req.get("message") or f"Event: {raw_req.get('event_type', 'telemetry')}"
+            events.append(LogEvent(timestamp=ts, source=src, severity="INFO", message=msg, metadata=raw_req))
+
+    if not events:
         raise HTTPException(status_code=422, detail="No events provided")
 
-    if len(req.events) > 500:
+    if len(events) > 500:
         raise HTTPException(status_code=413, detail="Batch too large; max 500 events per push")
 
     # Enrich each event with endpoint/tenant context
     correlation_id = secrets.token_hex(8)
     enriched = [
         {
-            "timestamp":      ev.timestamp,
-            "source":         ev.source,
+            "timestamp":      ev.timestamp or datetime.now(timezone.utc).isoformat(),
+            "source":         ev.source or endpoint_id,
             "severity":       ev.severity,
             "message":        ev.message,
             "metadata":       ev.metadata or {},
@@ -625,7 +671,7 @@ async def push_agent_logs(
             "tenant_id":      tenant_id,
             "correlation_id": correlation_id,
         }
-        for ev in req.events
+        for ev in events
     ]
 
     # ── Step 1: Forward to core-ingest (ClickHouse / gRPC fan-out) ──────────
@@ -639,15 +685,17 @@ async def push_agent_logs(
                     "X-Tenant-ID":      tenant_id,
                     "X-Endpoint-ID":    endpoint_id,
                     "X-Correlation-ID": correlation_id,
-                    "Authorization":    f"Bearer {os.environ.get('INTERNAL_SERVICE_KEY', 'dev-internal-key-change-in-prod')}"
+                    "Authorization":    f"Bearer {os.environ.get('INTERNAL_SERVICE_KEY', '')}"
                 }
             )
             if resp.status_code >= 400:
                 logger.error(f"core-ingest rejected events: {resp.status_code} {resp.text[:200]}")
-                raise HTTPException(status_code=502, detail="Ingest pipeline rejected the payload")
+                if os.getenv("ENVIRONMENT", "development") != "development":
+                    raise HTTPException(status_code=502, detail="Ingest pipeline rejected the payload")
     except httpx.RequestError as e:
         logger.error(f"Failed to reach core-ingest: {e}")
-        raise HTTPException(status_code=503, detail="Ingest pipeline unreachable")
+        if os.getenv("ENVIRONMENT", "development") != "development":
+            raise HTTPException(status_code=503, detail="Ingest pipeline unreachable")
 
     # ── Step 2: Feed internal AI Intelligence Engine (non-blocking) ─────────
     # The AI Engine is the SOLE intelligence layer. It runs entirely inside
@@ -656,13 +704,13 @@ async def push_agent_logs(
         await ingest_event(ev)
 
     logger.info(
-        f"[PUSH] {len(req.events)} events | endpoint={endpoint_id} "
+        f"[PUSH] {len(events)} events | endpoint={endpoint_id} "
         f"tenant={tenant_id} corr={correlation_id}"
     )
 
     return {
         "status":           "accepted",
-        "events_received":  len(req.events),
+        "events_received":  len(events),
         "endpoint_id":      endpoint_id,
         "tenant_id":        tenant_id,
         "correlation_id":   correlation_id

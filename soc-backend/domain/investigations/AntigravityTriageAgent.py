@@ -424,7 +424,20 @@ class AntigravityTriageCoordinator:
         RouterHost -> ExternalDomain / ExternalIP (WAN)
         ClientHost -> ExternalDomain (Direct site-visit)
         """
-        client_ip = telemetry.get("source_ip") or target_ip or "192.168.1.105"
+        client_ip = telemetry.get("source_ip") or target_ip or "10.0.0.33"
+        if client_ip in ("127.0.0.1", "::1", "localhost", "Unknown", "192.168.1.105"):
+            client_ip = "10.0.0.33"
+
+        # Dynamically derive subnet prefix and gateway IP
+        parts = client_ip.split(".")
+        if len(parts) == 4:
+            subnet_prefix = ".".join(parts[:3])
+            gateway_ip = f"{subnet_prefix}.10" if parts[0] == "10" else f"{subnet_prefix}.1"
+            subnet_str = f"{subnet_prefix}.0/24"
+        else:
+            gateway_ip = "10.0.0.10"
+            subnet_str = "10.0.0.0/24"
+
         dest_ip = telemetry.get("destination_ip") or "203.0.113.55"
         resolved_domain = domain or telemetry.get("domain") or telemetry.get("dst_hostname") or telemetry.get("dns_domain") or ""
         app = telemetry.get("application", "")
@@ -434,12 +447,12 @@ class AntigravityTriageCoordinator:
         nodes = [
             {
                 "id": "router-gw",
-                "label": "WiFi 6 Gateway (192.168.1.1)",
+                "label": f"WiFi 6 Gateway ({gateway_ip})",
                 "type": "RouterHost",
                 "role": "gateway",
                 "isGateway": True,
                 "status": "success",
-                "properties": "Model: 802.11ax WiFi 6 Router\nLAN Gateway: 192.168.1.1\nMode: Layer-3 Forwarding"
+                "properties": f"Model: 802.11ax WiFi 6 Router\nLAN Gateway: {gateway_ip}\nSubnet: {subnet_str}\nMode: Layer-3 Forwarding"
             },
             {
                 "id": f"client-{client_ip}",
@@ -448,7 +461,7 @@ class AntigravityTriageCoordinator:
                 "ip": client_ip,
                 "status": "failed" if is_suspicious else "success",
                 "hasActiveAlert": is_suspicious,
-                "properties": f"Client IP: {client_ip}\nSubnet: 192.168.1.0/24\nWiFi Standard: 802.11ax"
+                "properties": f"Client IP: {client_ip}\nSubnet: {subnet_str}\nWiFi Standard: 802.11ax"
             }
         ]
 

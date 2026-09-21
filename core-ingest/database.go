@@ -63,13 +63,13 @@ func StartBackgroundDLQProcessor(ctx context.Context) {
 	go func() {
 		defer dlqDB.Close()
 		log.Println("🛡️ [DLQ] Background Asynchronous bbolt WAL processor initialized.")
-		
+
 		for {
 			select {
 			case payload := <-DLQBuffer:
 				// Atomic disk append-only operations
 				fallbackBytes, _ := json.Marshal(payload)
-				
+
 				dlqDB.Update(func(tx *bbolt.Tx) error {
 					b := tx.Bucket([]byte("FailedLogs"))
 					key := []byte(fmt.Sprintf("%d-%s", time.Now().UnixNano(), payload.ClientID))
@@ -182,22 +182,27 @@ func (dm *DatabaseManager) Close() {
 
 // ==============================================================================
 // 1. WORKFLOW PATHWAY & LIFECYCLE PINPOINT
-//    - Step 4 of 5 in Ingestion Pipeline: Final destination for healthy telemetry.
-//    - Upstream: Main event loop | Downstream: ClickHouse OLAP & DLQ Fallback
+//   - Step 4 of 5 in Ingestion Pipeline: Final destination for healthy telemetry.
+//   - Upstream: Main event loop | Downstream: ClickHouse OLAP & DLQ Fallback
+//
 // 2. LOGICAL INTENT & SYSTEM RESPONSIBILITY
-//    - Efficiently flushes massive arrays of analytical security logs into
-//      ClickHouse using columnar bulk insertion strategies.
+//   - Efficiently flushes massive arrays of analytical security logs into
+//     ClickHouse using columnar bulk insertion strategies.
+//
 // 3. HARD ARCHITECTURAL CONSTRAINTS & THREAD SAFETY WARNINGS
-//    - Warning: JSON serialization (json.Marshal) occurs synchronously inside the
-//      batch loop, blocking the database worker thread.
-//    - Warning: Continuing the loop after an append failure risks batch poisoning,
-//      leading to mass failure of healthy rows upon batch.Send().
+//   - Warning: JSON serialization (json.Marshal) occurs synchronously inside the
+//     batch loop, blocking the database worker thread.
+//   - Warning: Continuing the loop after an append failure risks batch poisoning,
+//     leading to mass failure of healthy rows upon batch.Send().
+//
 // 4. PROTOCOL & SCHEMA BOUNDARIES
-//    - Writes to ClickHouse table `soc.application_security_logs`.
+//   - Writes to ClickHouse table `soc.application_security_logs`.
+//
 // 5. FAILURE DOMAIN & RESILIENCE RUNBOOK
-//    - Failure Mode: Database unreachability routes batch to DLQBuffer.
-//    - Resilience Posture: Backpressure/Dropping logs. Falls back to DLQ, but will
-//      shed load if the async buffer is full.
+//   - Failure Mode: Database unreachability routes batch to DLQBuffer.
+//   - Resilience Posture: Backpressure/Dropping logs. Falls back to DLQ, but will
+//     shed load if the async buffer is full.
+//
 // ==============================================================================
 func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, tenantID string, logs []*RemoteLogPayload) error {
 	if tenantID == "" {
@@ -211,28 +216,33 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, tenantID string, 
 	if err != nil {
 		return fmt.Errorf("failed to prepare ClickHouse batch context: %w", err)
 	}
-	
+
 	cdmBatch, err := dm.CHPool.PrepareBatch(ctx, "INSERT INTO soc.cdm_events")
 	if err != nil {
 		return fmt.Errorf("failed to prepare ClickHouse cdm_events batch context: %w", err)
 	}
 
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		tenantUUID = uuid.NewMD5(uuid.NameSpaceDNS, []byte(tenantID))
+	}
+
 	for _, l := range logs {
 		rawDataBytes, err := json.Marshal(l.RawData)
 		if err != nil {
-			rawDataBytes = []byte("{}") 
+			rawDataBytes = []byte("{}")
 		}
 
 		eventID := uuid.New()
 		appName := "enterprise_gateway"
 		environment := "production"
-		clientIP := "192.168.1.100" 
+		clientIP := "192.168.1.100"
 		apiEndpoint := "/api/v1/auth"
 		httpStatus := uint16(200)
 		riskScore := uint8(0)
 
 		err = batch.Append(
-			tenantID,
+			tenantUUID,
 			eventID,
 			l.Timestamp,
 			appName,
@@ -249,9 +259,9 @@ func (dm *DatabaseManager) BatchWriteLogs(ctx context.Context, tenantID string, 
 			log.Printf("⚠️ [Database] Dropping corrupted log row from batch: %v", err)
 			continue
 		}
-		
+
 		err = cdmBatch.Append(
-			tenantID,
+			tenantUUID,
 			l.Timestamp,
 			l.CFRayID,
 			l.ClientIP,

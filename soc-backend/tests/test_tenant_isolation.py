@@ -69,7 +69,7 @@ def test_missing_tenant_metrics(client):
 # 2. Tenant A -> Tenant A
 def test_tenant_a_reads_metrics(client):
     res = client.get("/metrics/overview", headers={
-        "X-Internal-Service-Key": INTERNAL_SERVICE_KEY,
+        "X-Internal-Service-Key": os.environ.get("INTERNAL_SERVICE_KEY", "test-internal-service-key"),
         "X-Tenant-ID": "tenant-a"
     })
     assert res.status_code == 200, res.text
@@ -78,7 +78,7 @@ def test_tenant_a_reads_metrics(client):
 def test_tenant_a_reads_investigation(client):
     # alert-172102001 belongs to tenant-a
     res = client.get("/investigation/alert-172102001", headers={
-        "X-Internal-Service-Key": INTERNAL_SERVICE_KEY,
+        "X-Internal-Service-Key": os.environ.get("INTERNAL_SERVICE_KEY", "test-internal-service-key"),
         "X-Tenant-ID": "tenant-a"
     })
     assert res.status_code == 200, res.text
@@ -87,7 +87,7 @@ def test_tenant_a_reads_investigation(client):
 def test_tenant_a_reads_tenant_b_investigation(client):
     # alert-172102002 belongs to tenant-b
     res = client.get("/investigation/alert-172102002", headers={
-        "X-Internal-Service-Key": INTERNAL_SERVICE_KEY,
+        "X-Internal-Service-Key": os.environ.get("INTERNAL_SERVICE_KEY", "test-internal-service-key"),
         "X-Tenant-ID": "tenant-a"
     })
     assert res.status_code == 404, "Tenant A should not be able to read Tenant B's investigation"
@@ -96,7 +96,7 @@ def test_tenant_a_reads_tenant_b_investigation(client):
 def test_jwt_header_mismatch_own_data(client):
     # JWT has tenant-a, header says tenant-b, requests tenant-a data
     import jwt
-    token = jwt.encode({"tenant_id": "tenant-a"}, b"A"*32, algorithm="RS256")
+    token = jwt.encode({"tenant_id": "tenant-a"}, os.environ["JWT_PRIVATE_KEY"], algorithm="RS256")
     client.cookies = {"access_token": token}
     res = client.get("/investigation/alert-172102001", headers={"X-Tenant-ID": "tenant-b"})
     assert res.status_code == 200, "Header must not override valid JWT to deny access to own data"
@@ -104,7 +104,7 @@ def test_jwt_header_mismatch_own_data(client):
 def test_jwt_header_mismatch_foreign_data(client):
     # JWT has tenant-a, header says tenant-b, requests tenant-b data
     import jwt
-    token = jwt.encode({"tenant_id": "tenant-a"}, b"A"*32, algorithm="RS256")
+    token = jwt.encode({"tenant_id": "tenant-a"}, os.environ["JWT_PRIVATE_KEY"], algorithm="RS256")
     client.cookies = {"access_token": token}
     res = client.get("/investigation/alert-172102002", headers={"X-Tenant-ID": "tenant-b"})
     assert res.status_code == 404, "Header must not grant access to foreign data despite matching the target tenant"

@@ -159,10 +159,7 @@ func (is *IngestionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	authHeader := r.Header.Get("Authorization")
 	internalKey := os.Getenv("INTERNAL_SERVICE_KEY")
-	if internalKey == "" {
-		internalKey = "dev-internal-key-change-in-prod"
-	}
-	isInternalService := (authHeader == "Bearer "+internalKey || r.Header.Get("X-Internal-Service-Key") != "")
+	isInternalService := internalKey != "" && (authHeader == "Bearer "+internalKey || r.Header.Get("X-Internal-Service-Key") == internalKey)
 
 	if !isInternalService && signature != "" {
 		if !AssertSignature(bodyBytes, signature, config.WebhookSecret) {
@@ -449,10 +446,7 @@ func (is *IngestionServer) handleAgentPush(w http.ResponseWriter, r *http.Reques
 
 	authHeader := r.Header.Get("Authorization")
 	internalKey := os.Getenv("INTERNAL_SERVICE_KEY")
-	if internalKey == "" {
-		internalKey = "dev-internal-key-change-in-prod"
-	}
-	isInternalService := (authHeader == "Bearer "+internalKey || r.Header.Get("X-Internal-Service-Key") != "")
+	isInternalService := internalKey != "" && (authHeader == "Bearer "+internalKey || r.Header.Get("X-Internal-Service-Key") == internalKey)
 
 	// Check if this is an endpoint push using CF Access Tokens (skip strict block for internal backend calls)
 	if !isInternalService && (cfClientId == "" || cfClientSecret == "") {
@@ -478,101 +472,154 @@ func (is *IngestionServer) handleAgentPush(w http.ResponseWriter, r *http.Reques
 	}
 
 	// 3.3 Parse Payload directly to strictly typed structural primitives
-	var paasPayload RemoteLogPayload
-	if err := json.Unmarshal(rawBody, &paasPayload); err != nil {
-		http.Error(w, "Invalid PaaS JSON Payload", http.StatusBadRequest)
-		log.Printf("⚠️ [HTTP] Malformed PaaS payload for Tenant '%s': %v", config.TenantID, err)
-		return
+	var payloads []*RemoteLogPayload
+
+	// Check if this is a batched payload from soc-backend: {"tenant_id": "...", "events": [...]}
+	var batchEnvelope struct {
+		TenantID string                   `json:"tenant_id"`
+		Events   []map[string]interface{} `json:"events"`
 	}
-
-	// Inject Zero Trust Identity & Tracing context
-	paasPayload.CFRayID = cfRay
-	paasPayload.ClientIP = clientIP
-	paasPayload.EndpointID = endpointId
-	paasPayload.UserAgent = userAgent
-	paasPayload.TLSFingerprint = tlsFingerprint
-	paasPayload.HTTPPath = r.URL.Path
-
-	// Set EndpointType based on the registered EndpointID or payload
-	if strings.Contains(endpointId, "gateway_bridge") || strings.Contains(endpointId, "router") || strings.Contains(strings.ToLower(paasPayload.EventType), "router") {
-		paasPayload.EndpointType = "gateway_bridge"
-	} else if strings.Contains(endpointId, "local") {
-		paasPayload.EndpointType = "local_cf_tunnel"
-	} else if strings.Contains(endpointId, "iaas") {
-		paasPayload.EndpointType = "iaas"
+	if err := json.Unmarshal(rawBody, &batchEnvelope); err == nil && len(batchEnvelope.Events) > 0 {
+		for _, rawEv := range batchEnvelope.Events {
+			p := &RemoteLogPayload{
+				ClientID:     endpointId,
+				EventType:    "security_event",
+				EndpointID:   endpointId,
+				EndpointType: "iaas",
+				HTTPPath:     r.URL.Path,
+				ClientIP:     clientIP,
+				CFRayID:      cfRay,
+				UserAgent:    userAgent,
+			}
+			if src, ok := rawEv["source"].(string); ok && src != "" {
+				p.ClientID = src
+			}
+			if tsStr, ok := rawEv["timestamp"].(string); ok {
+				if parsedTs, parseErr := time.Parse(time.RFC3339, tsStr); parseErr == nil {
+					p.Timestamp = parsedTs
+				} else {
+					p.Timestamp = time.Now()
+				}
+			} else {
+				p.Timestamp = time.Now()
+			}
+			if msg, ok := rawEv["message"].(string); ok {
+				p.RawData.Query = msg
+			}
+			if meta, ok := rawEv["metadata"].(map[string]interface{}); ok {
+				if et, ok := meta["event_type"].(string); ok {
+					p.EventType = et
+				}
+				if epType, ok := meta["endpoint_type"].(string); ok {
+					p.EndpointType = epType
+				}
+				if cid, ok := meta["client_id"].(string); ok {
+					p.ClientID = cid
+				}
+				if rd, ok := meta["raw_data"].(map[string]interface{}); ok {
+					if ip, ok := rd["router_gateway"].(string); ok {
+						p.RawData.SourceIP = ip
+					}
+				}
+			}
+			payloads = append(payloads, p)
+		}
 	} else {
-		paasPayload.EndpointType = "paas"
+		// Single RemoteLogPayload
+		var paasPayload RemoteLogPayload
+		if err := json.Unmarshal(rawBody, &paasPayload); err != nil {
+			http.Error(w, "Invalid PaaS JSON Payload", http.StatusBadRequest)
+			log.Printf("⚠️ [HTTP] Malformed PaaS payload for Tenant '%s': %v", config.TenantID, err)
+			return
+		}
+
+		paasPayload.CFRayID = cfRay
+		paasPayload.ClientIP = clientIP
+		paasPayload.EndpointID = endpointId
+		paasPayload.UserAgent = userAgent
+		paasPayload.TLSFingerprint = tlsFingerprint
+		paasPayload.HTTPPath = r.URL.Path
+
+		if strings.Contains(endpointId, "gateway_bridge") || strings.Contains(endpointId, "router") || strings.Contains(strings.ToLower(paasPayload.EventType), "router") {
+			paasPayload.EndpointType = "gateway_bridge"
+		} else if strings.Contains(endpointId, "local") {
+			paasPayload.EndpointType = "local_cf_tunnel"
+		} else if strings.Contains(endpointId, "iaas") {
+			paasPayload.EndpointType = "iaas"
+		} else {
+			paasPayload.EndpointType = "paas"
+		}
+		payloads = append(payloads, &paasPayload)
 	}
 
 	corrID, _ := ctx.Value("CorrelationID").(string)
-	log.Printf("✅ [HTTP] Accepted PaaS Event Log | Tenant: %s | CorrID: %s | Client: '%s' | Type: %s | Origin: %s (%s)", config.TenantID, corrID, paasPayload.ClientID, paasPayload.EventType, clientIP, cfCountry)
 
-	graph, err := ParseToCDM(&paasPayload, config.TenantID)
-	if err != nil {
-		log.Printf("⚠️ [HTTP] Failed to parse PaaS payload to CDM: %v", err)
+	for _, p := range payloads {
+		log.Printf("✅ [HTTP] Accepted PaaS Event Log | Tenant: %s | CorrID: %s | Client: '%s' | Type: %s | Origin: %s (%s)", config.TenantID, corrID, p.ClientID, p.EventType, clientIP, cfCountry)
+
+		graph, err := ParseToCDM(p, config.TenantID)
+		if err != nil {
+			log.Printf("⚠️ [HTTP] Failed to parse PaaS payload to CDM: %v", err)
+		}
+
+		sensorData := map[string]interface{}{
+			"source_ip":        p.RawData.SourceIP,
+			"destination_ip":   p.RawData.DestinationIP,
+			"destination_port": p.RawData.DestinationPort,
+			"protocol":         p.RawData.Protocol,
+			"dns_domain":       p.RawData.DNSDomain,
+		}
+
+		sensorType := "suricata"
+		if strings.Contains(strings.ToLower(p.EventType), "dns") {
+			sensorType = "dns"
+		} else if strings.Contains(strings.ToLower(p.EventType), "syslog") ||
+			strings.Contains(strings.ToLower(p.EventType), "router") ||
+			p.EndpointType == "gateway_bridge" {
+			sensorType = "router_syslog"
+		}
+
+		canonicalFlow, _ := NormalizeNetworkFlow(sensorType, p.ClientID, time.Now(), sensorData)
+
+		windowSignals := AnalyzeNetworkFlow(canonicalFlow)
+
+		noveltySignals, err := CheckDestinationNovelty(config.TenantID, canonicalFlow, is.DBManager)
+		if err != nil {
+			log.Printf("⚠️ [Network Analyzer] Novelty check skipped: %v", err)
+		}
+
+		allSignals := append(windowSignals, noveltySignals...)
+
+		if len(allSignals) > 0 {
+			EnrichGraphWithAnomalies(graph, allSignals, config.TenantID)
+		}
+
+		edgeRiskScore := uint32(len(graph.Nodes) * 15)
+		if edgeRiskScore > 100 {
+			edgeRiskScore = 100
+		}
+
+		graphJSON, _ := json.Marshal(graph)
+
+		qualifiedEvent := &pb.QualifiedEvent{
+			CorrelationId:   corrID,
+			EventType:       p.EventType,
+			EndpointId:      endpointId,
+			EndpointType:    p.EndpointType,
+			RiskScore:       edgeRiskScore,
+			IngestedAt:      timestamppb.Now(),
+			ProvenanceGraph: string(graphJSON),
+		}
+		select {
+		case qualifiedEventCh <- qualifiedEvent:
+			// Non-blocking send
+		default:
+			log.Printf("⚠️ [Triage Bus] Event channel full — dropping CorrID: %s (consider increasing buffer)", corrID)
+		}
 	}
 
-	var rawTelemetryMap map[string]interface{}
-	json.Unmarshal(rawBody, &rawTelemetryMap)
-	var sensorData map[string]interface{}
-	if rd, ok := rawTelemetryMap["raw_data"].(map[string]interface{}); ok {
-		sensorData = rd
-	} else {
-		sensorData = rawTelemetryMap
-	}
-
-	sensorType := "suricata"
-	if strings.Contains(strings.ToLower(paasPayload.EventType), "dns") {
-		sensorType = "dns"
-	} else if strings.Contains(strings.ToLower(paasPayload.EventType), "syslog") ||
-		strings.Contains(strings.ToLower(paasPayload.EventType), "router") ||
-		paasPayload.EndpointType == "gateway_bridge" {
-		sensorType = "router_syslog"
-	}
-
-	canonicalFlow, _ := NormalizeNetworkFlow(sensorType, paasPayload.ClientID, time.Now(), sensorData)
-
-	windowSignals := AnalyzeNetworkFlow(canonicalFlow)
-
-	noveltySignals, err := CheckDestinationNovelty(config.TenantID, canonicalFlow, is.DBManager)
-	if err != nil {
-		log.Printf("⚠️ [Network Analyzer] Novelty check skipped: %v", err)
-	}
-
-	allSignals := append(windowSignals, noveltySignals...)
-
-	if len(allSignals) > 0 {
-		EnrichGraphWithAnomalies(graph, allSignals, config.TenantID)
-	}
-
-	// Compute an edge risk score based on the number of detected CDM nodes
-	edgeRiskScore := uint32(len(graph.Nodes) * 15)
-	if edgeRiskScore > 100 {
-		edgeRiskScore = 100
-	}
-
-	// Push the qualified event to the global channel (non-blocking)
-	// The Python AI backend subscriber will receive this and trigger the LangGraph pipeline.
-	graphJSON, _ := json.Marshal(graph)
-
-	qualifiedEvent := &pb.QualifiedEvent{
-		CorrelationId:   corrID,
-		EventType:       paasPayload.EventType,
-		EndpointId:      endpointId,
-		EndpointType:    paasPayload.EndpointType,
-		RiskScore:       edgeRiskScore,
-		IngestedAt:      timestamppb.Now(),
-		ProvenanceGraph: string(graphJSON),
-	}
-	select {
-	case qualifiedEventCh <- qualifiedEvent:
-		// Non-blocking send
-	default:
-		log.Printf("⚠️ [Triage Bus] Event channel full — dropping CorrID: %s (consider increasing buffer)", corrID)
-	}
-
-	if is.DBManager != nil {
-		err := is.DBManager.BatchWriteLogs(ctx, config.TenantID, []*RemoteLogPayload{&paasPayload})
+	if is.DBManager != nil && len(payloads) > 0 {
+		err := is.DBManager.BatchWriteLogs(ctx, config.TenantID, payloads)
 		if err != nil {
 			log.Printf("⚠️ [HTTP] DB Write failed: %v", err)
 		}
@@ -719,31 +766,50 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbHost := os.Getenv("DB_HOST")
-	if dbHost == "" {
-		dbHost = "postgres"
-	}
-	dbUser := os.Getenv("DB_USER")
-	if dbUser == "" {
-		dbUser = "postgres"
-	}
-	dbPass := os.Getenv("DB_PASSWORD")
-	if dbPass == "" {
-		dbPass = "postgres"
-	}
-	dbPort := os.Getenv("DB_PORT")
-	if dbPort == "" {
-		dbPort = "5432"
-	}
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "soc"
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dbHost := os.Getenv("DB_HOST")
+		if dbHost == "" {
+			dbHost = "postgres"
+		}
+		dbUser := os.Getenv("DB_USER")
+		if dbUser == "" {
+			dbUser = "postgres"
+		}
+		dbPass := os.Getenv("DB_PASSWORD")
+		if dbPass == "" {
+			dbPass = "postgres"
+		}
+		dbPort := os.Getenv("DB_PORT")
+		if dbPort == "" {
+			dbPort = "5432"
+		}
+		dbName := os.Getenv("DB_NAME")
+		if dbName == "" {
+			dbName = "soc"
+		}
+
+		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	} else {
+		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+			if !strings.Contains(dsn, "sslmode=") {
+				if strings.Contains(dsn, "?") {
+					dsn += "&sslmode=disable"
+				} else {
+					dsn += "?sslmode=disable"
+				}
+			}
+		}
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to PostgreSQL (Tenant Registry): %v", err)
+	}
+	if err := db.Ping(); err != nil {
+		log.Printf("⚠️ [PostgreSQL] Initial Tenant Registry ping warning: %v", err)
+	} else {
+		log.Printf("✅ [PostgreSQL] Connected to Tenant Registry successfully")
 	}
 	tenantRegistry := NewMemoryRegistry(db, 5*time.Minute)
 
@@ -790,7 +856,7 @@ func main() {
 
 		internalServiceKey := os.Getenv("INTERNAL_SERVICE_KEY")
 		if internalServiceKey == "" {
-			internalServiceKey = "dev-internal-key-change-in-prod"
+			log.Printf("⚠️ [SECURITY WARNING] INTERNAL_SERVICE_KEY is not set. All incoming gRPC calls will be rejected until configured.")
 		}
 
 		authInterceptor := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -799,7 +865,7 @@ func main() {
 				return nil, status.Errorf(codes.Unauthenticated, "metadata is not provided")
 			}
 			keys := md["x-internal-service-key"]
-			if len(keys) == 0 || keys[0] != internalServiceKey {
+			if internalServiceKey == "" || len(keys) == 0 || keys[0] != internalServiceKey {
 				return nil, status.Errorf(codes.Unauthenticated, "invalid or missing internal service key")
 			}
 			return handler(ctx, req)
@@ -811,7 +877,7 @@ func main() {
 				return status.Errorf(codes.Unauthenticated, "metadata is not provided")
 			}
 			keys := md["x-internal-service-key"]
-			if len(keys) == 0 || keys[0] != internalServiceKey {
+			if internalServiceKey == "" || len(keys) == 0 || keys[0] != internalServiceKey {
 				return status.Errorf(codes.Unauthenticated, "invalid or missing internal service key")
 			}
 			return handler(srv, ss)

@@ -106,6 +106,10 @@ services:
       - "8080" # Exposed endpoint receiving unbuffered HTTP webhook packets
     environment:
       - DATABASE_URL=${POSTGRES_CONNECTION_STRING}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_HOST=postgres
       - CLICKHOUSE_ADDRESS=clickhouse-server:9000
       - CLICKHOUSE_USER=${CLICKHOUSE_USER}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
@@ -135,8 +139,11 @@ services:
       dockerfile: deploy/Dockerfile.python
     container_name: soc-python-ai-backend
     networks:
-      - internal-mesh
       - public-ingress
+      - internal-mesh
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
     expose:
       - "8000"
@@ -156,6 +163,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - AUTHORIZED_EMAILS=${AUTHORIZED_EMAILS}
+      - AUTHORIZED_DOMAINS=${AUTHORIZED_DOMAINS}
     depends_on:
       postgres:
         condition: service_healthy

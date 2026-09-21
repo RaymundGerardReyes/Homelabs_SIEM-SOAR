@@ -51,7 +51,7 @@ export default function InvestigationDashboard() {
   if (error && !investigation) return <div className="p-8 bg-slate-950 min-h-screen"><ErrorState message={error} onRetry={execute} /></div>;
 
   return (
-    <div className="investigation-dashboard fadeIn p-4 sm:p-6 lg:p-8 min-h-screen bg-slate-950 relative overflow-hidden">
+    <div className="investigation-dashboard fadeIn p-4 sm:p-6 lg:p-8 min-h-full w-full min-w-0 bg-slate-950 relative pb-16">
       {/* Ambient background glows */}
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[150px] pointer-events-none" />
       
@@ -68,17 +68,16 @@ export default function InvestigationDashboard() {
       </div>
       
       {investigation && (
-        <div className="investigation-grid grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 relative z-10">
-          <AgentChatWidget defaultOpen={true} defaultInput={`Analyze Investigation ${id}`} />
+        <div className="investigation-grid grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 relative z-10 min-w-0 w-full">
           {/* Left Column: Logs and Graph */}
-          <div className="space-y-6 sm:space-y-8 min-w-0">
-            <div className="panel conversation-panel glass-panel-dark rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl">
+          <div className="space-y-6 sm:space-y-8 min-w-0 w-full">
+            <div className="panel conversation-panel glass-panel-dark rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl min-w-0">
               <h3 className="panel-title flex items-center text-base sm:text-lg font-bold text-white mb-4 sm:mb-6">
                 <span className="icon mr-2">🛡️</span> Immutable Agent Log
               </h3>
               <div className="log-container space-y-3 sm:space-y-4 max-h-[400px] overflow-y-auto pr-1 sm:pr-2 custom-scrollbar">
                 {logs.map((log, idx) => (
-                  <div key={idx} className={`log-entry interactive-card p-3.5 sm:p-4 rounded-lg border ${log.confidence < 70 ? 'bg-orange-900/10 border-orange-500/30' : 'bg-slate-900/50 border-slate-700'} hover:border-slate-600 transition-colors`}>
+                  <div key={idx} className={`log-entry interactive-card p-3.5 sm:p-4 rounded-lg border ${log.confidence < 70 ? 'bg-orange-900/10 border-orange-500/30' : 'bg-slate-900/50 border-slate-700'} hover:border-slate-600 transition-colors min-w-0`}>
                     <div className="log-header flex justify-between items-start mb-2 gap-2">
                       <span className="agent-name text-blue-400 font-mono text-xs sm:text-sm font-bold truncate">{log.agent}</span>
                       <div className="confidence-score flex items-center space-x-1.5 flex-shrink-0">
@@ -99,8 +98,8 @@ export default function InvestigationDashboard() {
           </div>
 
           {/* Right Column: Actions and Threat Intel */}
-          <div className="space-y-6 sm:space-y-8 min-w-0">
-            <div className="panel action-panel glass-panel-dark rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl">
+          <div className="space-y-6 sm:space-y-8 min-w-0 w-full">
+            <div className="panel action-panel glass-panel-dark rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl min-w-0">
               <h3 className="panel-title flex items-center text-base sm:text-lg font-bold text-white mb-4 sm:mb-6">
                 <span className="icon mr-2 text-yellow-500">⚡</span> Proposed Actions
               </h3>
@@ -108,17 +107,17 @@ export default function InvestigationDashboard() {
                 {actions.map((action, idx) => {
                   const isHighRisk = action.risk.includes('HIGH') || action.risk.includes('DESTRUCTIVE');
                   return (
-                    <div key={idx} className={`action-card interactive-card p-4 sm:p-5 rounded-lg border ${isHighRisk ? 'bg-red-900/10 border-red-500/50' : 'bg-slate-900/50 border-slate-700'}`}>
+                    <div key={idx} className={`action-card interactive-card p-4 sm:p-5 rounded-lg border ${isHighRisk ? 'bg-red-900/10 border-red-500/50' : 'bg-slate-900/50 border-slate-700'} min-w-0`}>
                       <div className="action-header flex justify-between items-start mb-3 gap-2">
-                        <span className={`action-name font-bold text-sm sm:text-base ${isHighRisk ? 'text-red-400' : 'text-white'}`}>{action.action}</span>
+                        <span className={`action-name font-bold text-sm sm:text-base break-words ${isHighRisk ? 'text-red-400' : 'text-white'}`}>{action.action}</span>
                         <span className={`risk-badge text-[10px] sm:text-xs px-2 py-0.5 sm:py-1 rounded font-bold tracking-wider flex-shrink-0 ${isHighRisk ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'}`}>
                           {action.risk.replace(/_/g, ' ')}
                         </span>
                       </div>
                       <div className="action-target text-slate-400 text-xs sm:text-sm mb-2 break-all">
-                        Target: <code className="glass-code bg-slate-950 px-2 py-1 rounded text-blue-300 font-mono text-xs border border-slate-800 break-all">{action.target}</code>
+                        Target: <code className="glass-code bg-slate-950 px-2 py-1 rounded text-blue-300 font-mono text-xs border border-slate-800 break-all inline-block max-w-full overflow-hidden text-ellipsis">{action.target}</code>
                       </div>
-                      <div className="action-justification text-slate-300 text-xs sm:text-sm italic mb-4 border-l-2 border-slate-600 pl-3">
+                      <div className="action-justification text-slate-300 text-xs sm:text-sm italic mb-4 border-l-2 border-slate-600 pl-3 break-words">
                         "{action.justification}"
                       </div>
                       <button 
@@ -142,6 +141,9 @@ export default function InvestigationDashboard() {
           </div>
         </div>
       )}
+
+      {/* Floating Agent Chat Widget placed safely outside the CSS Grid */}
+      <AgentChatWidget defaultOpen={false} defaultInput={`Analyze Investigation ${id}`} />
     </div>
   );
 }

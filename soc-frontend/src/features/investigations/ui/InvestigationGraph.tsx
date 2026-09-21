@@ -50,24 +50,38 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
   
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 850, height: 440 });
+  const [dimensions, setDimensions] = useState(() => ({
+    width: typeof window !== 'undefined' ? Math.min(window.innerWidth - 64, 720) : 600,
+    height: 420
+  }));
 
   const pendingUpdates = useRef<any[]>([]);
   const isSnapshotLoaded = useRef<boolean>(false);
 
-  // ResizeObserver for dynamic ForceGraph2D dimensions
+  // Robust ResizeObserver for dynamic ForceGraph2D dimensions
   useEffect(() => {
     if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      if (entries[0] && entries[0].contentRect.width > 0) {
-        setDimensions({
-          width: entries[0].contentRect.width,
-          height: Math.max(400, Math.min(520, window.innerHeight * 0.5))
-        });
-      }
+    const updateDims = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const padding = window.innerWidth < 640 ? 32 : 48; // p-4 vs p-6 padding
+      const contentWidth = Math.max(260, Math.floor(rect.width - padding));
+      const targetHeight = window.innerWidth < 640 
+        ? Math.max(300, Math.min(380, Math.floor(contentWidth * 0.75)))
+        : Math.max(380, Math.min(500, Math.floor(contentWidth * 0.55)));
+      setDimensions({ width: contentWidth, height: targetHeight });
+    };
+
+    updateDims();
+    const observer = new ResizeObserver(() => {
+      updateDims();
     });
     observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    window.addEventListener('resize', updateDims);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateDims);
+    };
   }, []);
 
   useEffect(() => {
@@ -212,18 +226,18 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
   };
 
   return (
-    <div className="bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl w-full max-w-4xl min-w-0" ref={containerRef}>
+    <div className="bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-800 shadow-xl w-full min-w-0 relative" ref={containerRef}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
-        <h2 className="text-lg sm:text-xl font-bold text-white font-mono flex items-center">
+        <h2 className="text-base sm:text-lg lg:text-xl font-bold text-white font-mono flex items-center">
           <span className="text-indigo-500 mr-2">⚛</span> WiFi Router & Investigation Graph
         </h2>
         
         {/* Dual-View Mode Switcher */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
           <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-mono">
             <button
               onClick={() => setViewMode('topology')}
-              className={`px-3 py-1 rounded transition-all ${
+              className={`px-2.5 sm:px-3 py-1 rounded transition-all text-xs ${
                 viewMode === 'topology'
                   ? 'bg-indigo-600 text-white font-bold shadow'
                   : 'text-slate-400 hover:text-white'
@@ -233,7 +247,7 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
             </button>
             <button
               onClick={() => setViewMode('stepper')}
-              className={`px-3 py-1 rounded transition-all ${
+              className={`px-2.5 sm:px-3 py-1 rounded transition-all text-xs ${
                 viewMode === 'stepper'
                   ? 'bg-indigo-600 text-white font-bold shadow'
                   : 'text-slate-400 hover:text-white'
@@ -250,7 +264,7 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
 
       {/* TOPOLOGY VIEW */}
       {viewMode === 'topology' && (
-        <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950">
+        <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950 w-full flex items-center justify-center">
           <ForceGraph2D
             ref={fgRef}
             width={dimensions.width}
@@ -272,38 +286,38 @@ export const InvestigationGraph: React.FC<{ sessionId: string }> = ({ sessionId 
           />
 
           {/* Topology Graph Legend */}
-          <div className="absolute bottom-2 left-2 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-2 rounded text-[11px] font-mono text-slate-400 flex flex-wrap gap-4 pointer-events-none z-10">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-[0_0_6px_#6366f1]"></span>
-              <span>WiFi 6 Router Gateway</span>
+          <div className="absolute bottom-2 left-2 bg-slate-900/90 backdrop-blur border border-slate-800 p-2 sm:px-3 sm:py-2 rounded text-[10px] sm:text-[11px] font-mono text-slate-400 flex flex-wrap gap-2 sm:gap-3.5 pointer-events-none z-10 max-w-[calc(100%-1rem)]">
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-indigo-500 shadow-[0_0_6px_#6366f1] flex-shrink-0"></span>
+              <span className="whitespace-nowrap">WiFi 6 Gateway</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span>
-              <span>Client Station</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-cyan-500 flex-shrink-0"></span>
+              <span className="whitespace-nowrap">Client Station</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-              <span>Firewall DROP / Threat</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-red-500 flex-shrink-0"></span>
+              <span className="whitespace-nowrap">DROP / Threat</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span>Allowed Flow</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+              <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+              <span className="whitespace-nowrap">Allowed Flow</span>
             </div>
           </div>
 
           {/* Selected Node Details Card */}
           {selectedNode && (
-            <div className="absolute top-2 right-2 w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-xl z-20 text-xs font-mono">
+            <div className="absolute top-2 right-2 w-[calc(100%-1rem)] max-w-xs sm:w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-xl z-20 text-xs font-mono">
               <div className="flex justify-between items-start border-b border-slate-800 pb-2 mb-2">
                 <span className="font-bold text-white truncate pr-2">{selectedNode.label || selectedNode.id}</span>
-                <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white">&times;</button>
+                <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white text-base leading-none">&times;</button>
               </div>
               <div className="space-y-1.5 text-slate-300">
                 <div><span className="text-slate-500">Type:</span> {selectedNode.type || 'Entity'}</div>
                 {selectedNode.category && <div><span className="text-slate-500">Category:</span> {selectedNode.category}</div>}
-                {selectedNode.ip && <div><span className="text-slate-500">IP:</span> {selectedNode.ip}</div>}
+                {selectedNode.ip && <div className="break-all"><span className="text-slate-500">IP:</span> {selectedNode.ip}</div>}
                 {selectedNode.properties && (
-                  <div className="bg-slate-950 p-2 rounded border border-slate-800 text-[11px] text-slate-400 whitespace-pre-wrap mt-2">
+                  <div className="bg-slate-950 p-2 rounded border border-slate-800 text-[11px] text-slate-400 whitespace-pre-wrap break-all mt-2 max-h-36 overflow-y-auto custom-scrollbar">
                     {selectedNode.properties}
                   </div>
                 )}

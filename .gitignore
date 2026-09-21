@@ -15,6 +15,9 @@ deploy/.env.keys
 .env.development
 .env.test
 .env.production
+*.credentials.json
+.agent_credentials.json
+.siem_credentials.json
 
 # ==============================================================================
 # PYTHON (soc-backend)

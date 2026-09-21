@@ -121,7 +121,7 @@ def client(mock_db):
     from Interfaces.main import app as main_app
     main_app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with TestClient(app, raise_server_exceptions=False, headers={"X-Tenant-ID": "tenant-a"}) as c:
         yield c
     main_app.dependency_overrides.clear()
     app.dependency_overrides.clear()
@@ -157,7 +157,7 @@ def test_auth_valid_internal_service_key_accepted(monkeypatch):
     req = MagicMock()
     req.cookies.get.return_value = None
     def _header(k, default=None):
-        return INTERNAL_SERVICE_KEY if k == "X-Internal-Service-Key" else default
+        return os.environ.get("INTERNAL_SERVICE_KEY", "test-internal-service-key") if k == "X-Internal-Service-Key" else default
     req.headers.get.side_effect = _header
     assert verify_internal_auth(request=req) is True
 

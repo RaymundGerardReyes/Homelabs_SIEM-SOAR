@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 import os
 import logging
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncpg
 from Infrastructure.Http.DataTransferObject import LoginRequest, AuthResponse
 from Infrastructure.Http.Deps import get_db
@@ -43,7 +43,7 @@ async def login(credentials: LoginRequest, response: Response, db: asyncpg.Conne
     private_key_str = private_key_str.strip("\"'").replace("\\n", "\n")
     
     expire_minutes = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-    expiration = datetime.utcnow() + timedelta(minutes=expire_minutes)
+    expiration = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
     
     claims = {
         "sub": user_record.username,

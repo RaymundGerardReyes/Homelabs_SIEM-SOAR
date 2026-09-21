@@ -148,9 +148,10 @@ async def lifespan(app: FastAPI):
     except (ValueError, TypeError):
         core_target = "core-ingest:9090"
     
-    internal_key = os.environ.get("INTERNAL_SERVICE_KEY", "dev-internal-key-change-in-prod")
+    internal_key = os.environ.get("INTERNAL_SERVICE_KEY", "")
     if internal_key.startswith("encrypted:"):
-        internal_key = "dev-internal-key-change-in-prod"
+        logger.warning("⚠️ INTERNAL_SERVICE_KEY contains an un-decrypted token.")
+        internal_key = ""
 
     channel = grpc.aio.insecure_channel(core_target, options=options)
     
