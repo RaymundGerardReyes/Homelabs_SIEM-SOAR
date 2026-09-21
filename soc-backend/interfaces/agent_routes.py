@@ -309,13 +309,22 @@ async def register_endpoint(
     
     agent_event_bus.emit({"type": "endpoint_registered", "endpoint_id": str(endpoint['endpoint_id'])})
     
+    # Dynamically resolve Hub base URL (env var override -> reverse-proxy headers -> incoming URL)
+    hub_base = os.environ.get("PUBLIC_HUB_URL") or os.environ.get("HUB_BASE_URL")
+    if not hub_base:
+        fwd_proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
+        fwd_host = request.headers.get("X-Forwarded-Host", request.headers.get("Host", request.url.netloc))
+        hub_base = f"{fwd_proto}://{fwd_host}"
+    hub_base = hub_base.rstrip("/")
+    
     return RegisterResponse(
         endpoint_id=str(endpoint['endpoint_id']),
         tenant_id=endpoint['tenant_id'],
-        ingest_url="https://socanalyst.raymundgerardestaca.dev/ingest/",
-        tasks_url="https://socanalyst.raymundgerardestaca.dev/api/agents/tasks",
+        ingest_url=f"{hub_base}/ingest/",
+        tasks_url=f"{hub_base}/api/agents/tasks",
         poll_interval_seconds=10
     )
+
 
 @router.get("/endpoints/me")
 async def get_endpoint_me(endpoint: dict = Depends(verify_endpoint_secret), db: asyncpg.Connection = Depends(get_db)):

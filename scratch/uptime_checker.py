@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 # Suppress insecure request warnings if testing against self-signed local IPs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-URL = os.getenv("CHECK_URL", "https://socanalyst.raymundgerardestaca.dev/health")
+URL = os.getenv("CHECK_URL", "http://localhost:81/health")
+
 LOG_FILE = os.getenv("LOG_FILE", "uptime_log.csv")
 INTERVAL_SEC = int(os.getenv("CHECK_INTERVAL", "10"))
 

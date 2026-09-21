@@ -65,7 +65,9 @@ export default function CompliancePage() {
     try {
       // Mock audit link generation
       await new Promise(r => setTimeout(r, 800));
-      setAuditLink(`https://soc.enterprise.local/audit/read-only?token=tk_${Math.random().toString(36).substring(7)}&expires=7d`);
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:81';
+      setAuditLink(`${origin}/audit/read-only?token=tk_${Math.random().toString(36).substring(7)}&expires=7d`);
+
     } catch (err) {
       alert('Failed to generate audit link.');
     } finally {

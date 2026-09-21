@@ -59,7 +59,8 @@ export default function HostManagementPage() {
   const [showSecretToken, setShowSecretToken] = useState(false);
 
   // Dynamically resolve the HUB_URL based on where the app is hosted (e.g. PaaS environments)
-  const currentHubUrl = typeof window !== 'undefined' ? window.location.origin : 'https://socanalyst.raymundgerardestaca.dev';
+  const currentHubUrl = (import.meta as any).env?.VITE_HUB_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:81');
+
 
   // In-App Toast & Confirmation Dialog State
   const [toastMessage, setToastMessage] = useState<{ title: string; desc?: string; type: 'success' | 'info' | 'warning' | 'error' } | null>(null);

@@ -10,13 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Frontend Edge Gateway
+        env:
+          INGEST_HEALTH_URL: ${{ secrets.INGEST_HEALTH_URL || 'http://localhost:81/health' }}
         run: |
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://ingest.socanalyst.raymundgerardestaca.dev/health || echo "000")
+          TARGET_URL="${INGEST_HEALTH_URL}"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL" || echo "000")
           if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 401 ]; then
             echo "Edge Gateway is returning $HTTP_STATUS! Alerting required."
             exit 1
           fi
           echo "Edge Gateway healthy ($HTTP_STATUS)."
+
       
       - name: Notify on Failure
         if: failure()

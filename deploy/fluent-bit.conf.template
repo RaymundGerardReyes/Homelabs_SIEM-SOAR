@@ -6,11 +6,12 @@
 [OUTPUT]
     Name              http
     Match             endpoint.applog
-    Host              socanalyst.raymundgerardestaca.dev
-    Port              443
+    Host              ${HUB_HOST}
+    Port              ${HUB_PORT}
     URI               /ingest/
     Format            json
-    tls               On
+    tls               ${TLS_ENABLED}
+
     Header            CF-Access-Client-Id ${CF_ACCESS_CLIENT_ID}
     Header            CF-Access-Client-Secret ${CF_ACCESS_CLIENT_SECRET}
     Header            X-Endpoint-Id ${ENDPOINT_ID}

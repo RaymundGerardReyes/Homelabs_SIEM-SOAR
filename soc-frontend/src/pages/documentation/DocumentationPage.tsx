@@ -7,7 +7,8 @@ export default function DocumentationPage() {
   const [activeTab, setActiveTab] = useState<LanguageTab>('python');
 
   // Dynamically resolve the HUB_URL based on where the app is hosted (e.g. PaaS environments)
-  const currentHubUrl = typeof window !== 'undefined' ? window.location.origin : 'https://socanalyst.raymundgerardestaca.dev';
+  const currentHubUrl = (import.meta as any).env?.VITE_HUB_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:81');
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-300 font-sans selection:bg-indigo-500/30">

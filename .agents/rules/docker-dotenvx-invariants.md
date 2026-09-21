@@ -41,3 +41,8 @@
 
 11. **Release & Branch Synchronization**:
     - When promoting release milestones (`v0.8.0`), ensure `Development` is fully verified with 100% test coverage before updating `main` and pushing tags.
+
+12. **Zero Hardcoded Hostnames & Dynamic URL Resolution**:
+    - Never embed static external hostnames, private domain URLs, or hardcoded hub fallbacks (e.g. `socanalyst.raymundgerardestaca.dev`, `soc.enterprise.local`) in source files, UI snippets, agent configs, or registration payloads.
+    - Dynamically resolve endpoints via runtime environment variables (`PUBLIC_HUB_URL`, `HUB_BASE_URL`, `VITE_HUB_URL`), request reverse-proxy headers (`X-Forwarded-*`), or browser context (`window.location.origin` / `window.location.hostname`), with `http://localhost:81` as default local fallback.
+

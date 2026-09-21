@@ -383,8 +383,16 @@ def register_with_hub():
         "X-Tenant-ID": TENANT_ID
     }
     
-    tunnel_url = f"https://{ENDPOINT_ID}.socanalyst.raymundgerardestaca.dev" if WEBHOOK_PORT > 0 else None
     net_info = detect_local_network()
+    tunnel_domain = os.getenv("CF_TUNNEL_DOMAIN")
+    tunnel_url = None
+    if WEBHOOK_PORT > 0:
+        if tunnel_domain:
+            tunnel_url = f"https://{ENDPOINT_ID}.{tunnel_domain}"
+        else:
+            hub_domain = HUB_BASE_URL.replace("http://", "").replace("https://", "").split(":")[0]
+            tunnel_url = f"https://{ENDPOINT_ID}.{hub_domain}" if hub_domain not in ("localhost", "127.0.0.1") else f"http://{net_info['local_ip']}:{WEBHOOK_PORT}"
+
     
     register_payload = {
         "hostname": HOSTNAME,

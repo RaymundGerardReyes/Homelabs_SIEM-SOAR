@@ -299,8 +299,9 @@ const SettingsPage: React.FC = () => {
                   <strong>Agent Secret:</strong> <code style={{ color: '#e2e8f0' }}>{provisionResult.webhook_secret}</code>
                 </div>
                 <p style={{ fontSize: '12px', color: '#64748b', marginTop: '12px', marginBottom: 0 }}>
-                  Agent instances should use the above secret to authenticate outbound telemetry. The edge gateway has dynamically configured <code>{provisionResult.tenant_id}.socanalyst.raymundgerardestaca.dev</code>.
+                  Agent instances should use the above secret to authenticate outbound telemetry. The edge gateway has dynamically configured <code>{provisionResult.tenant_id}.{typeof window !== 'undefined' ? window.location.hostname : 'soc.internal'}</code>.
                 </p>
+
               </div>
             )}
           </div>
