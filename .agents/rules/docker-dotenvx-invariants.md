@@ -46,3 +46,8 @@
     - Never embed static external hostnames, private domain URLs, or hardcoded hub fallbacks (e.g. `socanalyst.raymundgerardestaca.dev`, `soc.enterprise.local`) in source files, UI snippets, agent configs, or registration payloads.
     - Dynamically resolve endpoints via runtime environment variables (`PUBLIC_HUB_URL`, `HUB_BASE_URL`, `VITE_HUB_URL`), request reverse-proxy headers (`X-Forwarded-*`), or browser context (`window.location.origin` / `window.location.hostname`), with `http://localhost:81` as default local fallback.
 
+13. **Remote Git De-Tracking with Local Disk Preservation (`git rm --cached` + `.gitignore`)**:
+    - When removing prompt files, local scratch notes, or working specifications from remote Git tracking, never use raw `git rm` (which deletes files from the local disk).
+    - Always execute `git rm --cached <files>` accompanied by `.gitignore` rules. This guarantees local working copies remain 100% intact on the developer's computer while cleanly purging them from remote branches.
+
+
