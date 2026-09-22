@@ -106,5 +106,15 @@ Thumbs.db
 # Ignore local dev environments
 deploy/.env.dev
 
-# Ignore local dev environments
-deploy/.env.dev
+# ==============================================================================
+# LOCAL DEVELOPMENT PROMPTS & ARCHITECTURE SPECIFICATIONS
+# (Preserved locally on disk, untracked on remote Git branches)
+# ==============================================================================
+*-prompt.md
+*-prompts.md
+COMMENTOR.md
+
+ai_safety_and_agents.md
+network-monitoring-implementation-plan.md
+PLATFORM.md
+
